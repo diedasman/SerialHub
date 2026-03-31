@@ -1,0 +1,69 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "serialhub"
+version = "0.1.0"
+description = "Cross-platform serial terminal with DLMS-first decoding via GURUX"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [
+  { name = "SerialHub Contributors" }
+]
+keywords = ["serial", "terminal", "dlms", "gurux", "textual"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Embedded Systems",
+  "Topic :: System :: Hardware :: Universal Serial Bus (USB)",
+  "Topic :: Terminals",
+]
+dependencies = [
+  "textual>=0.89.1",
+  "pyserial>=3.5",
+  "platformdirs>=4.2",
+  "gurux_dlms>=1.0.196"
+]
+
+[project.urls]
+Homepage = "https://github.com/diedasman/SerialHub"
+Repository = "https://github.com/diedasman/SerialHub"
+Issues = "https://github.com/diedasman/SerialHub/issues"
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2",
+  "ruff>=0.6"
+]
+
+[project.scripts]
+serialhub = "serialhub.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+serialhub = ["*.tcss"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]

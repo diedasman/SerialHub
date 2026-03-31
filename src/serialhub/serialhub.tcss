@@ -1,0 +1,162 @@
+Screen {
+    background: $background;
+    color: $foreground;
+}
+
+#app-layout {
+    height: 1fr;
+}
+
+.panel {
+    border: round $primary;
+    background: $surface;
+    padding: 1;
+    margin: 0 1;
+}
+
+#left-panel {
+    width: 32;
+    min-width: 26;
+}
+
+#center-panel {
+    width: 1fr;
+    min-width: 70;
+}
+
+#right-panel {
+    width: 36;
+    min-width: 30;
+}
+
+.panel-title {
+    color: $primary;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.section-title {
+    color: $secondary;
+    text-style: bold;
+}
+
+#device-list {
+    height: 1fr;
+    margin-bottom: 1;
+}
+
+#active-row,
+#view-options-row {
+    height: auto;
+    margin-bottom: 1;
+    # align: left middle;
+}
+
+#rx-hex-checkbox {
+    margin-left: 1;
+}
+
+#active-device {
+    margin-left: 1;
+    width: 1fr;
+}
+
+#viz-tabs {
+    height: 1fr;
+    min-height: 8;
+    margin-bottom: 1;
+}
+
+TabPane {
+    padding: 0;
+}
+
+#raw-log,
+#parsed-log,
+#dlms-log {
+    border: round $secondary;
+    height: 1fr;
+    padding: 0 1;
+    background: $panel;
+}
+
+#tx-row,
+#script-control-row,
+.stack-row {
+    height: auto;
+    align: left middle;
+    margin-bottom: 1;
+}
+
+#tx-input {
+    width: 1fr;
+    margin-right: 1;
+}
+
+#tx-terminate-option {
+    width: 22;
+    margin-right: 1;
+}
+
+#tx-hex-checkbox {
+    width: auto;
+    margin-right: 1;
+}
+
+#script-start {
+    margin-right: 1;
+}
+
+#script-stop {
+    margin-right: 1;
+}
+
+.inline-label {
+    margin: 0 1;
+    color: $accent;
+}
+
+#script-editor {
+    height: 8;
+    min-height: 6;
+    border: round $secondary;
+    background: $panel;
+}
+
+#baud-select,
+#parity-select,
+#stopbits-select,
+#databits-select,
+#log-filename {
+    margin-bottom: 1;
+}
+
+.wide-btn {
+    width: 1fr;
+    margin-bottom: 1;
+}
+
+.hint {
+    color: $accent;
+    margin-bottom: 1;
+}
+
+#footer-row {
+    height: 1;
+    background: $surface;
+}
+
+#app-footer {
+    width: 1fr;
+    background: $surface;
+    color: $foreground;
+}
+
+#footer-brand {
+    width: auto;
+    min-width: 30;
+    content-align: right middle;
+    background: $surface;
+    color: $accent;
+    padding-right: 1;
+}
