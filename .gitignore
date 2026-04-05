@@ -14,3 +14,4 @@ dist/
 
 # Local app data overrides
 *.log
+TODO.md

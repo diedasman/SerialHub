@@ -1,4 +1,4 @@
-from textual.theme import Theme
+from textual.theme import Theme  # type: ignore
 
 SERIALHUB_THEME = Theme(
     name="serialhub",
@@ -19,3 +19,24 @@ SERIALHUB_THEME = Theme(
         "input-selection-background": "#83D0C9 35%",
     },
 )
+
+# New Theme template for future use
+# NEW_THEME = Theme(
+#     name="new_theme",
+#     primary="#000000",
+#     secondary="#000000",
+#     accent="#000000",
+#     foreground="#000000",
+#     background="#000000",
+#     success="#000000",
+#     warning="#000000",
+#     error="#000000",
+#     surface="#000000",
+#     panel="#000000",
+#     dark=False,
+#     variables={
+#         "block-cursor-text-style": "none",
+#         "footer-key-foreground": "#000000",
+#         "input-selection-background": "#000000 35%",
+#     },
+# )

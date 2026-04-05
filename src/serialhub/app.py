@@ -1,22 +1,19 @@
 from __future__ import annotations
 
-import re
 from datetime import datetime
 from pathlib import Path
 
-from textual.app import App, ComposeResult
-from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
-from textual.widgets import (
+from textual.app import App, ComposeResult  # type: ignore
+from textual.binding import Binding  # type: ignore
+from textual.containers import Horizontal, Vertical  # type: ignore
+from textual.widgets import (  # type: ignore
     Button,
     Checkbox,
     Footer,
     Input,
-    OptionList,
     RichLog,
     Select,
     Static,
-    Switch,
     TabbedContent,
     TabPane,
     TextArea,
@@ -26,19 +23,11 @@ from serialhub.config import get_logs_dir
 from serialhub.core.device_manager import DeviceManager
 from serialhub.core.models import DeviceInfo, SerialConfig, SerialEvent
 from serialhub.core.session import DeviceSession
+from serialhub.defaults import DEFAULT_SCRIPT_SOURCE, sanitize_log_filename
 from serialhub.logging.session_logger import SessionLogger
 from serialhub.protocols import AsciiBinaryDecoder, GuruxDlmsDecoder
 from serialhub.scripting.engine import ScriptEngine
 from serialhub.theme import SERIALHUB_THEME
-
-
-def sanitize_log_filename(filename: str) -> str:
-    safe_name = re.sub(r'[<>:\"/\\\\|?*]+', "_", filename).strip(" .")
-    if not safe_name:
-        safe_name = "serialhub-log"
-    if not safe_name.lower().endswith(".txt"):
-        safe_name += ".txt"
-    return safe_name
 
 
 class SerialHubApp(App[None]):
@@ -46,6 +35,9 @@ class SerialHubApp(App[None]):
     ENABLE_COMMAND_PALETTE = False
     BINDINGS = [
         Binding("r", "refresh_devices", "Refresh Devices"),
+        Binding("m", "focus_message_input", "Message"),
+        Binding("d", "toggle_connect_disconnect", "Dis/Connect"),
+        Binding("l", "toggle_logging_shortcut", "Logging"),
         Binding("ctrl+c", "quit", "Quit"),
     ]
 
@@ -68,28 +60,17 @@ class SerialHubApp(App[None]):
         self._dlms_decoder = GuruxDlmsDecoder()
 
     def compose(self) -> ComposeResult:
-        sample_script = (
-            "# SerialHub script sample\n"
-            "# send('7E A0 07 03 21 93 0F 01 7E', hex_mode=True)\n"
-            "\n"
-            "@on_pattern(r\"READY\")\n"
-            "def when_ready(match, text, raw):\n"
-            "    log(f\"READY seen: {text.strip()}\")\n"
-            "\n"
-            "def main():\n"
-            "    log('Script started')\n"
-        )
-
         with Horizontal(id="app-layout"):
+            
             with Vertical(id="left-panel", classes="panel"):
-                yield Static("SERIAL DEVICES", classes="panel-title")
+
                 yield Button("Refresh", id="refresh-devices", classes="wide-btn")
-                yield OptionList(id="device-list")
+                yield Select([], id="device-list", prompt="Select serial device", allow_blank=True)
                 yield Static("Select a port to connect.", id="device-meta", classes="hint")
 
             with Vertical(id="center-panel", classes="panel"):
                 with Horizontal(id="active-row"):
-                    yield Static("ACTIVE DEVICE", classes="section-title")
+                    # yield Static("ACTIVE DEVICE", classes="section-title")
                     yield Select([], id="active-device", prompt="No active sessions", allow_blank=True)
 
                 with TabbedContent(initial="tab-raw", id="viz-tabs"):
@@ -101,9 +82,6 @@ class SerialHubApp(App[None]):
 
                     with TabPane("DLMS", id="tab-dlms"):
                         yield RichLog(id="dlms-log", wrap=True, highlight=True, markup=False)
-
-                with Horizontal(id="view-options-row"):
-                    yield Checkbox("HEX Output", id="rx-hex-checkbox")
 
                 with Horizontal(id="tx-row"):
                     yield Input(placeholder="Type message or hex payload...", id="tx-input")
@@ -119,21 +97,23 @@ class SerialHubApp(App[None]):
                         ],
                         allow_blank=False,
                     )
-                    yield Checkbox("HEX TX", id="tx-hex-checkbox")
+                    yield Checkbox("HEX", id="tx-hex-checkbox")
                     yield Button("Send", variant="primary", id="send-btn")
 
                 with Horizontal(id="script-control-row"):
                     yield Button("Run Script", id="script-start")
                     yield Button("Stop Script", id="script-stop")
-
-                    yield Switch(value=True, id="timestamp-switch")
-                    yield Static("Timestamps", classes="inline-label")
+                    yield Checkbox("Timestamps", value=True, id="timestamp-checkbox")
 
                 yield Static("SCRIPT EDITOR", classes="section-title")
-                yield TextArea(sample_script, id="script-editor", language="python", show_line_numbers=True)
+                yield TextArea(
+                    DEFAULT_SCRIPT_SOURCE,
+                    id="script-editor",
+                    language="python",
+                    show_line_numbers=True,
+                )
 
             with Vertical(id="right-panel", classes="panel"):
-                yield Static("CONNECTION", classes="panel-title")
                 yield Select(
                     [
                         ("1200", "1200"),
@@ -181,11 +161,10 @@ class SerialHubApp(App[None]):
                     yield Button("Connect", id="connect-btn", variant="success")
                     yield Button("Disconnect", id="disconnect-btn", variant="warning")
 
-                yield Static("LOGGING", classes="panel-title")
+                yield Static("LOGGING", classes="section-title")
                 yield Input(placeholder="Log filename (optional, .txt)", id="log-filename")
                 with Horizontal(classes="stack-row"):
-                    yield Switch(value=False, id="auto-log-switch")
-                    yield Static("Auto-logging on connect", classes="inline-label")
+                    yield Checkbox("Auto-logging on connect", value=False, id="auto-log-checkbox")
                 yield Button("Start Logging", id="toggle-logging")
 
         with Horizontal(id="footer-row"):
@@ -193,6 +172,7 @@ class SerialHubApp(App[None]):
             yield Static("SerialHub - by @diedasman", id="footer-brand")
 
     def on_mount(self) -> None:
+        self._set_panel_border_titles()
         self._refresh_devices_ui()
 
         if not self._dlms_decoder.available:
@@ -205,6 +185,23 @@ class SerialHubApp(App[None]):
 
     def action_refresh_devices(self) -> None:
         self._refresh_devices_ui()
+
+    def action_focus_message_input(self) -> None:
+        self.query_one("#tx-input", Input).focus()
+
+    def action_toggle_connect_disconnect(self) -> None:
+        if not self.selected_port:
+            self.notify("Select a device first.", severity="warning")
+            return
+
+        if self.selected_port in self.device_manager.connected_ports():
+            self._disconnect_device(self.selected_port)
+            return
+
+        self._connect_selected_device()
+
+    def action_toggle_logging_shortcut(self) -> None:
+        self._toggle_logging_for_active_session()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id or ""
@@ -237,23 +234,17 @@ class SerialHubApp(App[None]):
             self._stop_script_for_active_device()
             return
 
-    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
-        if event.option_list.id != "device-list":
-            return
-
-        # Textual uses `option_index` for OptionList selection events.
-        index = getattr(event, "option_index", getattr(event, "index", -1))
-        if index < 0 or index >= len(self.discovered_devices):
-            return
-
-        selected = self.discovered_devices[index]
-        self.selected_port = selected.port
-        details = selected.label
-        if selected.hwid:
-            details += f"\n{selected.hwid}"
-        self.query_one("#device-meta", Static).update(details)
-
     def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id == "device-list":
+            value = event.value
+            if value is Select.BLANK:
+                self.selected_port = None
+                self.query_one("#device-meta", Static).update("Select a port to connect.")
+                return
+            self.selected_port = str(value)
+            self._update_device_meta(self.selected_port)
+            return
+
         if event.select.id == "active-device":
             value = event.value
             if value is Select.BLANK:
@@ -265,14 +256,11 @@ class SerialHubApp(App[None]):
             self._refresh_logging_button()
             return
 
-    def on_switch_changed(self, event: Switch.Changed) -> None:
-        if event.switch.id == "timestamp-switch":
+    def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
+        if event.checkbox.id == "timestamp-checkbox":
             enabled = event.value
             for session in self.sessions.values():
                 session.timestamps_enabled = enabled
-
-    def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
-        if event.checkbox.id == "rx-hex-checkbox":
             self._render_active_logs()
 
     def on_unmount(self) -> None:
@@ -286,19 +274,40 @@ class SerialHubApp(App[None]):
     def _refresh_devices_ui(self) -> None:
         self.discovered_devices = self.device_manager.scan_devices()
 
-        device_list = self.query_one("#device-list", OptionList)
-        device_list.clear_options()
-        for item in self.discovered_devices:
-            device_list.add_option(item.label)
+        device_list = self.query_one("#device-list", Select)
+        options = [(item.label, item.port) for item in self.discovered_devices]
+        device_list.set_options(options)
 
         if not self.discovered_devices:
             self.selected_port = None
+            device_list.value = Select.BLANK
             self.query_one("#device-meta", Static).update("No serial devices detected.")
             self.notify("No serial devices found.")
         else:
-            self.selected_port = self.discovered_devices[0].port
-            self.query_one("#device-meta", Static).update(self.discovered_devices[0].label)
+            known_ports = {device.port for device in self.discovered_devices}
+            if self.selected_port in known_ports:
+                preferred_port = self.selected_port
+            else:
+                preferred_port = self.discovered_devices[0].port
+            self.selected_port = preferred_port
+            device_list.value = preferred_port
+            self._update_device_meta(preferred_port)
             self.notify(f"Detected {len(self.discovered_devices)} serial device(s).")
+
+    def _set_panel_border_titles(self) -> None:
+        self.query_one("#left-panel", Vertical).border_title = " Connection "
+        self.query_one("#center-panel", Vertical).border_title = " Workspace "
+        self.query_one("#right-panel", Vertical).border_title = " Logging "
+
+    def _update_device_meta(self, selected_port: str) -> None:
+        selected = next((device for device in self.discovered_devices if device.port == selected_port), None)
+        if not selected:
+            self.query_one("#device-meta", Static).update(selected_port)
+            return
+        details = selected.label
+        if selected.hwid:
+            details += f"\n{selected.hwid}"
+        self.query_one("#device-meta", Static).update(details)
 
     def _build_serial_config_from_inputs(self) -> SerialConfig:
         baud_text = str(self.query_one("#baud-select", Select).value)
@@ -333,7 +342,7 @@ class SerialHubApp(App[None]):
                 port=self.selected_port,
                 config=config,
                 logger=None,
-                timestamps_enabled=self.query_one("#timestamp-switch", Switch).value,
+                timestamps_enabled=self.query_one("#timestamp-checkbox", Checkbox).value,
             )
             self.sessions[self.selected_port] = session
         else:
@@ -342,7 +351,7 @@ class SerialHubApp(App[None]):
         try:
             self.device_manager.connect(self.selected_port, config, self._on_serial_event)
             self._refresh_active_device_select(preferred=self.selected_port)
-            if self.query_one("#auto-log-switch", Switch).value:
+            if self.query_one("#auto-log-checkbox", Checkbox).value:
                 session = self.sessions[self.selected_port]
                 self._start_logging_for_session(session, notify=False)
             self.notify(f"Connected to {self.selected_port}")
@@ -353,6 +362,12 @@ class SerialHubApp(App[None]):
         target = self.active_device_id or self.selected_port
         if not target:
             self.notify("No device selected.", severity="warning")
+            return
+        self._disconnect_device(target)
+
+    def _disconnect_device(self, target: str) -> None:
+        if target not in self.device_manager.connected_ports():
+            self.notify(f"{target} is not connected.", severity="warning")
             return
 
         self.script_engine.stop(target)
@@ -509,24 +524,16 @@ class SerialHubApp(App[None]):
             return ""
         return f"[{timestamp.strftime('%H:%M:%S.%f')[:-3]}] "
 
-    def _format_payload_for_raw_log(self, payload: bytes) -> str:
-        if self._is_rx_hex_mode():
-            return payload.hex(" ").upper()
-        return payload.decode("utf-8", errors="replace")
-
     def _render_raw_event_lines(self, session: DeviceSession, event: SerialEvent) -> list[str]:
         prefix = self._format_prefix(session, event.timestamp)
         if event.direction in {"RX", "TX"} and event.payload is not None:
-            formatted = self._format_payload_for_raw_log(event.payload)
+            formatted = event.payload.decode("utf-8", errors="replace")
             lines = formatted.replace("\r\n", "\n").replace("\r", "\n").split("\n")
             return [f"{prefix}{event.direction} {line}" for line in lines if line or len(lines) == 1]
         return [f"{prefix}{event.direction} {event.text or ''}"]
 
     def _is_tx_hex_mode(self) -> bool:
         return self.query_one("#tx-hex-checkbox", Checkbox).value
-
-    def _is_rx_hex_mode(self) -> bool:
-        return self.query_one("#rx-hex-checkbox", Checkbox).value
 
     def _render_active_logs(self) -> None:
         raw_log = self.query_one("#raw-log", RichLog)

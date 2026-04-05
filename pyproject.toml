@@ -5,19 +5,19 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "serialhub"
 version = "0.1.0"
-description = "Cross-platform serial terminal with DLMS-first decoding via GURUX"
+description = "Cross-platform serial terminal with local web mode and DLMS-first decoding via GURUX"
 readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "MIT" }
+license = { file = "LICENSE" }
 authors = [
   { name = "SerialHub Contributors" }
 ]
-keywords = ["serial", "terminal", "dlms", "gurux", "textual"]
+keywords = ["serial", "terminal", "web", "dlms", "gurux", "textual"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",
   "Intended Audience :: Developers",
-  "License :: OSI Approved :: MIT License",
+  "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
   "Operating System :: Microsoft :: Windows",
   "Operating System :: POSIX :: Linux",
   "Programming Language :: Python :: 3",
@@ -28,6 +28,7 @@ classifiers = [
 ]
 dependencies = [
   "textual>=0.89.1",
+  "textual-serve>=1.1.3",
   "pyserial>=3.5",
   "platformdirs>=4.2",
   "gurux_dlms>=1.0.196"
