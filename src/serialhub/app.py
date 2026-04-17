@@ -28,7 +28,7 @@ from serialhub.logging.session_logger import SessionLogger
 from serialhub.protocols import AsciiBinaryDecoder, GuruxDlmsDecoder
 from serialhub.scripting.engine import ScriptEngine
 from serialhub.theme import SERIALHUB_THEME
-
+# from serialhub.theme import APP_THEMES, resolve_textual_theme_name
 
 class SerialHubApp(App[None]):
     CSS_PATH = "serialhub.tcss"
@@ -39,12 +39,18 @@ class SerialHubApp(App[None]):
         Binding("d", "toggle_connect_disconnect", "Dis/Connect"),
         Binding("l", "toggle_logging_shortcut", "Logging"),
         Binding("ctrl+c", "quit", "Quit"),
+        Binding("ctrl+t", "toggle_theme", "Theme"),
     ]
 
     def __init__(self) -> None:
         super().__init__()
         self.register_theme(SERIALHUB_THEME)
         self.theme = SERIALHUB_THEME.name
+
+        # for theme in APP_THEMES.values():
+        #     self.register_theme(theme)
+        # self.theme_mode = self.services.settings_service.get_theme_mode()
+        # self.theme = resolve_textual_theme_name(self.theme_mode)
 
         self.device_manager = DeviceManager()
         self.script_engine = ScriptEngine()
@@ -69,19 +75,19 @@ class SerialHubApp(App[None]):
                 yield Static("Select a port to connect.", id="device-meta", classes="hint")
 
             with Vertical(id="center-panel", classes="panel"):
-                with Horizontal(id="active-row"):
+                # with Horizontal(id="active-row"):
                     # yield Static("ACTIVE DEVICE", classes="section-title")
-                    yield Select([], id="active-device", prompt="No active sessions", allow_blank=True)
+                    # yield Select([], id="active-device", prompt="No active sessions", allow_blank=True)
 
                 with TabbedContent(initial="tab-raw", id="viz-tabs"):
                     with TabPane("RAW", id="tab-raw"):
                         yield RichLog(id="raw-log", wrap=True, highlight=True, markup=False)
 
-                    with TabPane("PARSED", id="tab-parsed"):
-                        yield RichLog(id="parsed-log", wrap=True, highlight=True, markup=False)
+                    # with TabPane("PARSED", id="tab-parsed"):
+                    #     yield RichLog(id="parsed-log", wrap=True, highlight=True, markup=False)
 
-                    with TabPane("DLMS", id="tab-dlms"):
-                        yield RichLog(id="dlms-log", wrap=True, highlight=True, markup=False)
+                    # with TabPane("DLMS", id="tab-dlms"):
+                    #     yield RichLog(id="dlms-log", wrap=True, highlight=True, markup=False)
 
                 with Horizontal(id="tx-row"):
                     yield Input(placeholder="Type message or hex payload...", id="tx-input")
@@ -183,6 +189,11 @@ class SerialHubApp(App[None]):
         else:
             self.notify("GURUX DLMS decoder ready.")
 
+    # def action_toggle_theme(self) -> None:
+    #     self.theme_mode = self.services.settings_service.toggle_theme_mode()
+    #     self.theme = resolve_textual_theme_name(self.theme_mode)
+    #     self.services.logger.info("Theme changed to %s", self.theme_mode)
+    
     def action_refresh_devices(self) -> None:
         self._refresh_devices_ui()
 

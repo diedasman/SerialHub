@@ -6,8 +6,8 @@ from typing import Any
 from serialhub.protocols.base import DecodeResult, ProtocolDecoder
 
 try:
-    from gurux_dlms import GXDLMSConverter, GXDLMSTranslator
-    from gurux_dlms.enums import TranslatorOutputType
+    from gurux_dlms import GXDLMSConverter, GXDLMSTranslator # type: ignore
+    from gurux_dlms.enums import TranslatorOutputType # type: ignore
 
     _GURUX_AVAILABLE = True
     _GURUX_IMPORT_ERROR = ""
