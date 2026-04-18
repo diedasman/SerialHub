@@ -15,8 +15,8 @@ Screen {
 }
 
 #left-panel {
-    width: 32;
-    min-width: 26;
+    width: 34;
+    min-width: 28;
 }
 
 #center-panel {
@@ -34,25 +34,17 @@ Screen {
     text-style: bold;
 }
 
+#connection-tabs{
+    height: auto;
+}
+
+#workspace-tabs {
+    height: 70%;
+    margin-bottom: 1;
+}
+
 #device-list {
     width: 1fr;
-    margin-bottom: 1;
-}
-
-#active-row {
-    height: auto;
-    margin-bottom: 1;
-    # align: left middle;
-}
-
-#active-device {
-    margin-left: 1;
-    width: 1fr;
-}
-
-#viz-tabs {
-    height: 1fr;
-    min-height: 8;
     margin-bottom: 1;
 }
 
@@ -60,21 +52,54 @@ TabPane {
     padding: 0;
 }
 
-#raw-log,
-#parsed-log,
-#dlms-log {
+#workspace-toolbar,
+#tx-row,
+.stack-row,
+.workspace-pane-toolbar,
+#script-screen-toolbar {
+    height: auto;
+}
+
+#workspace-selection,
+#script-active-device {
+    width: 1fr;
+    height: auto;
+}
+
+#timestamp-checkbox,
+#tx-hex-checkbox,
+#script-start,
+#script-stop {
+    width: auto;
+    margin-right: 1;
+}
+
+.workspace-pane {
+    height: 1fr;
+}
+
+.workspace-status {
+    width: 1fr;
+    color: $accent;
+}
+
+.workspace-close-btn {
+    min-width: 16;
+}
+
+.workspace-pane RichLog {
     border: solid $secondary;
     height: 1fr;
     padding: 0 1;
     background: $panel;
 }
 
-#tx-row,
-#script-control-row,
-.stack-row {
+#workspace-placeholder {
     height: auto;
-    align: left middle;
-    margin-bottom: 1;
+    content-align: center middle;
+    border: solid $secondary;
+    background: $panel;
+    padding: 1 2;
 }
 
 #tx-input {
@@ -85,31 +110,6 @@ TabPane {
 #tx-terminate-option {
     width: 22;
     margin-right: 1;
-}
-
-#tx-hex-checkbox {
-    width: auto;
-    margin-right: 1;
-}
-
-#script-start {
-    margin-right: 1;
-}
-
-#script-stop {
-    margin-right: 1;
-}
-
-.inline-label {
-    margin: 0 1;
-    color: $accent;
-}
-
-#script-editor {
-    height: 8;
-    min-height: 6;
-    border: solid $secondary;
-    background: $panel;
 }
 
 #baud-select,
@@ -123,12 +123,24 @@ TabPane {
 .wide-btn {
     width: 1fr;
     margin-bottom: 1;
-    color: $secondary
+    color: $secondary;
 }
 
 .hint {
     color: $accent;
     margin-bottom: 1;
+}
+
+#script-screen {
+    background: $surface;
+    padding: 1 2;
+}
+
+#script-editor {
+    height: 1fr;
+    min-height: 12;
+    border: solid $secondary;
+    background: $panel;
 }
 
 #footer-row {

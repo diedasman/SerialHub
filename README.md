@@ -1,14 +1,13 @@
 # SerialHub
 
-SerialHub is a cross-platform serial tool with two local launch modes: the native Textual terminal UI and the same Textual app served in a browser from your machine. It is focused on advanced protocol workflows, with **DLMS support through GURUX (mandatory)**, multi-device sessions, automation scripts, and per-device logging.
+SerialHub is a cross-platform serial tool with two local launch modes: the native Textual terminal UI and the same Textual app served in a browser from your machine. It is focused on practical multi-device serial workflows, persistent per-device workspaces, automation scripts, and per-device logging while keeping the DLMS integration in the codebase for upcoming UI work.
 
-Right now the app is focused on a practical DLMS-first serial workflow:
+Right now the app is focused on a raw serial workflow:
 
 - Detect USB/serial devices and connect with configurable serial settings
-- View live raw RX/TX stream and parsed protocol output in tabbed visualization windows
-- Decode DLMS frames via GURUX translator integration
-- Parse OBIS hints when detectable in incoming payloads
-- Run embedded Python scripts with message/pattern event hooks
+- Create a dedicated workspace tab for each connected serial device
+- Preserve disconnected device tabs and captured stream history until the user closes them
+- Open a dedicated script editor screen without losing the main workspace state
 - Log sessions per device with timestamp, direction, HEX, and ASCII
 
 ## Features
@@ -19,6 +18,7 @@ Right now the app is focused on a practical DLMS-first serial workflow:
 - Cross-platform serial tooling (Windows + Linux)
 - Multi-device management with independent sessions
 - Manual refresh and auto-discovery of available serial ports
+- Connection panel tabs for `Serial`, `TCP/IP`, and `DLMS`
 - Device selection via dynamic dropdown list
 - Serial configuration control:
   - Baud rate
@@ -27,11 +27,12 @@ Right now the app is focused on a practical DLMS-first serial workflow:
   - Data bits
 - Real-time send/receive terminal flow
 - Hex TX mode via checkbox toggle
-- Raw stream view and structured parsed view
-- Tabbed visualization windows for `RAW`, `PARSED`, and `DLMS`
-- DLMS parsing with `gurux_dlms`
+- Dynamic workspace tabs with one raw stream view per device
+- Workspace tabs stay available after disconnect until manually closed
+- Closing a live workspace tab also disconnects the device
+- DLMS parsing backend remains installed through `gurux_dlms` for future UI work
 - Textual browser mode via `textual-serve` with automatic browser launch
-- Embedded Python scripting engine with:
+- Dedicated script editor screen with:
   - `on_message`
   - `on_pattern`
   - `send`, `sleep`, `wait_for`, `log`
@@ -39,8 +40,8 @@ Right now the app is focused on a practical DLMS-first serial workflow:
 - User-defined log filename (stored in `logs/`)
 - Optional auto-logging on connect (checkbox toggle)
 - Timestamp display toggle via checkbox
-- Keyboard shortcuts for message focus, connect/disconnect, and logging toggle
-- Custom Textual theme (no default theme)
+- Keyboard shortcuts for message focus, connect/disconnect, logging toggle, script editor, and theme toggle
+- Built-in dark and light themes
 - No command palette and no header
 - Branded footer: `SerialHub - by @diedasman`
 
@@ -204,36 +205,39 @@ python -m pip install -e .
 When the app opens:
 
 1. Click `Refresh` to load serial ports.
-2. Select a port from the `Serial Devices` dropdown.
+2. Select a port from the `Serial` tab in the `Connection` panel.
 3. Set your connection parameters in the `CONNECTION` panel (including baud from dropdown).
 4. Press `Connect`.
-5. Choose the active session from `ACTIVE DEVICE`.
+5. SerialHub creates or reuses a workspace tab for that device in the `Workspace` panel.
 6. Optional: set `LOGGING` filename and enable auto-logging with the checkbox.
 7. Start sending or receiving data.
-
-If GURUX cannot be imported, SerialHub will show an error notification. Install dependencies again inside your active virtual environment.
+8. Close a workspace tab when you want to remove its saved session history.
 
 Browser mode exposes the same Textual workflow through the browser by serving `SerialHubApp` itself, rather than maintaining a separate HTML frontend.
 
 ## Using The Main Workflow
 
-1. Pick a connected `ACTIVE DEVICE`.
-2. Use the TX input field to send text payloads.
-3. Enable `HEX TX` when sending raw hex payloads.
-4. Use tabs to inspect `RAW`, `PARSED`, or `DLMS` views.
+1. Pick a serial device from the `Serial` connection tab and connect it.
+2. Work in the device's raw-stream workspace tab.
+3. Use the TX input field to send text payloads.
+4. Enable `HEX TX` when sending raw hex payloads.
 5. Toggle `Timestamps` when needed.
-6. Use `Start Logging` / `Stop Logging` per device.
+6. Use `Start Logging` / `Stop Logging` for the active workspace.
+7. Open `Script Editor` when you want to automate the active device.
 
 ### CLI Keyboard Shortcuts
 
 - `M`: focus the TX message input field
 - `D`: connect/disconnect the currently selected device
 - `L`: start/stop logging for the active device session
+- `Ctrl+E`: open or close the script editor screen
+- `Ctrl+T`: toggle between dark and light themes
 
 ### Scripting
 
-- Use the built-in script editor to automate traffic.
+- Open the dedicated script editor screen to automate traffic without losing the main workspace.
 - Click `Run Script` to start and `Stop Script` to stop for the active device.
+- Click `Close`, press `Esc`, or press `Ctrl+E` to leave the editor and return to the main screen.
 - Supported helper functions in script scope:
   - `send(...)`
   - `sleep(...)`
@@ -305,9 +309,10 @@ Implemented in this version:
 
 - Serial terminal with configurable COM settings
 - Local browser mode with automatic localhost launch
-- Multi-device session selection
-- GURUX-backed DLMS decode integration
-- Raw + parsed dual-view output
+- Persistent per-device raw workspace tabs
+- Dedicated script editor screen with shortcut access
+- Dark/light theme toggle
+- GURUX-backed DLMS decode integration retained in the backend
 - Embedded script runtime with event hooks
 - Per-device logging
 
