@@ -113,7 +113,6 @@ class SerialHubApp(App[None]):
         self._workspace_panes: dict[str, str] = {}
         self._workspace_devices_by_pane: dict[str, str] = {}
         self._workspace_logs: dict[str, RichLog] = {}
-        self._workspace_statuses: dict[str, Static] = {}
 
         self._ascii_decoder = AsciiBinaryDecoder()
         self._dlms_decoder = GuruxDlmsDecoder()
@@ -163,7 +162,12 @@ class SerialHubApp(App[None]):
                             allow_blank=False,
                         )
                         yield Select(
-                            [("Data Bits 8", "8"), ("Data Bits 7", "7"), ("Data Bits 6", "6"), ("Data Bits 5", "5")],
+                            [
+                                ("Data Bits 8", "8"),
+                                ("Data Bits 7", "7"),
+                                ("Data Bits 6", "6"),
+                                ("Data Bits 5", "5"),
+                            ],
                             id="databits-select",
                             value="8",
                             allow_blank=False,
@@ -180,20 +184,27 @@ class SerialHubApp(App[None]):
                 with Horizontal(classes="stack-row"):
                     yield Button("Connect", id="connect-btn", variant="success")
                     yield Button("Disconnect", id="disconnect-btn", variant="warning")
+                
 
             with Vertical(id="center-panel", classes="panel"):
+                # STATUS BAR
                 with Horizontal(id="workspace-toolbar"):
-                    
                     yield Static("No device workspaces open.", id="workspace-selection", classes="hint")
+                    yield Button("Close Tab", id="close-active-workspace", disabled=True)
 
+                # DEVICE DATA STREAM WINDOW
                 with TabbedContent(initial=self.WORKSPACE_PLACEHOLDER_ID, id="workspace-tabs"):
                     with TabPane("Workspace", id=self.WORKSPACE_PLACEHOLDER_ID):
-                        yield Static(
-                            "Connect a serial device to create a raw stream workspace tab.",
-                            id="workspace-placeholder",
-                            classes="hint",
+                        yield Vertical(
+                            Static(
+                                "Connect a serial device to create a raw stream workspace tab.",
+                                id="workspace-placeholder",
+                                classes="workspace-content workspace-placeholder-text",
+                            ),
+                            classes="workspace-pane",
                         )
 
+                # MESSAGE STRING
                 with Horizontal(id="tx-row"):
                     yield Input(placeholder="Type message or hex payload...", id="tx-input")
                     yield Select(
@@ -207,15 +218,17 @@ class SerialHubApp(App[None]):
                         ],
                         allow_blank=False,
                     )
-                    yield Checkbox("HEX", id="tx-hex-checkbox")
+                    
                     yield Button("Send", variant="primary", id="send-btn")
-
-                yield Checkbox("Timestamps", value=True, id="timestamp-checkbox")
-                yield Button("Script Editor", id="open-script-editor")
+                    yield Checkbox("HEX", id="tx-hex-checkbox")
+                
+                # FUNCTION BUTTONS
+                with Horizontal(id="function-buttons-row"):
+                    yield Checkbox("Timestamps", value=True, id="timestamp-checkbox")
+                    yield Button("Script Editor", id="open-script-editor")
 
             with Vertical(id="right-panel", classes="panel"):
                 
-
                 yield Static("LOGGING", classes="section-title")
                 yield Input(placeholder="Log filename (optional, .txt)", id="log-filename")
                 with Horizontal(classes="stack-row"):
@@ -290,11 +303,9 @@ class SerialHubApp(App[None]):
             self.action_toggle_script_editor()
             return
 
-        if button_id.startswith("close-tab--"):
-            pane_id = button_id.removeprefix("close-tab--")
-            device_id = self._workspace_devices_by_pane.get(pane_id)
-            if device_id:
-                self._close_workspace_for_device(device_id)
+        if button_id == "close-active-workspace":
+            if self.active_device_id:
+                self._close_workspace_for_device(self.active_device_id)
 
     def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id != "device-list":
@@ -317,7 +328,7 @@ class SerialHubApp(App[None]):
         for session in self.sessions.values():
             session.timestamps_enabled = enabled
         for device_id in self.sessions:
-            self._render_workspace_session(device_id)
+            self._render_workspace_session(device_id, preserve_scroll=True)
 
     def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
         if event.tabbed_content.id == "workspace-tabs":
@@ -465,7 +476,6 @@ class SerialHubApp(App[None]):
 
         pane_id = self._workspace_panes.pop(device_id, None)
         self._workspace_logs.pop(device_id, None)
-        self._workspace_statuses.pop(device_id, None)
 
         if pane_id:
             self._workspace_devices_by_pane.pop(pane_id, None)
@@ -597,7 +607,9 @@ class SerialHubApp(App[None]):
             session.add_parsed_line(f"{prefix}{event.direction} {info_text}")
             session.add_dlms_line(f"{prefix}{event.direction} {info_text}")
 
-        self._refresh_workspace_state(event.device_id)
+        self._append_workspace_event(event.device_id, event)
+        self._update_workspace_tab_label(event.device_id)
+        self._sync_active_device_from_workspace()
 
     def _format_prefix(self, session: DeviceSession, timestamp: datetime) -> str:
         if not session.timestamps_enabled:
@@ -682,52 +694,78 @@ class SerialHubApp(App[None]):
 
         self._workspace_counter += 1
         pane_id = f"workspace-pane-{self._workspace_counter}"
-        status = Static(classes="workspace-status")
-        close_button = Button("Close Tab", id=f"close-tab--{pane_id}", classes="workspace-close-btn")
-        raw_log = RichLog(wrap=True, highlight=True, markup=False)
+        raw_log = RichLog(wrap=True, highlight=True, markup=False, auto_scroll=False)
 
         pane = TabPane(
             self._workspace_tab_label(device_id),
-            Vertical(
-                Horizontal(status, close_button, classes="workspace-pane-toolbar"),
-                raw_log,
-                classes="workspace-pane",
-            ),
+            Vertical(raw_log, classes="workspace-pane"),
             id=pane_id,
         )
 
         self._workspace_panes[device_id] = pane_id
         self._workspace_devices_by_pane[pane_id] = device_id
         self._workspace_logs[device_id] = raw_log
-        self._workspace_statuses[device_id] = status
 
         tabs = self.query_one("#workspace-tabs", TabbedContent)
         tabs.add_pane(pane)
         tabs.active = pane_id
         self.call_after_refresh(self._refresh_workspace_state, device_id)
 
-    def _render_workspace_session(self, device_id: str) -> None:
+    def _render_workspace_session(self, device_id: str, preserve_scroll: bool = False) -> None:
         session = self.sessions.get(device_id)
         raw_log = self._workspace_logs.get(device_id)
         if not session or raw_log is None:
             return
 
+        scroll_x = raw_log.scroll_x
+        scroll_y = raw_log.scroll_y
+        follow_stream = self._should_follow_log(raw_log)
+
         raw_log.clear()
         if not session.raw_events:
             if self._is_device_connected(device_id):
-                raw_log.write(f"Session ready for {device_id}.")
+                raw_log.write(f"Session ready for {device_id}.", scroll_end=follow_stream)
             else:
-                raw_log.write(f"Saved session for {device_id}. Reconnect to continue streaming.")
+                raw_log.write(
+                    f"Saved session for {device_id}. Reconnect to continue streaming.",
+                    scroll_end=follow_stream,
+                )
+            if preserve_scroll and not follow_stream:
+                self.call_after_refresh(
+                    raw_log.scroll_to,
+                    x=scroll_x,
+                    y=min(scroll_y, raw_log.max_scroll_y),
+                    animate=False,
+                    immediate=True,
+                )
             return
 
         for event in session.raw_events:
             for line in self._render_raw_event_lines(session, event):
-                raw_log.write(line)
+                raw_log.write(line, scroll_end=follow_stream)
+
+        if preserve_scroll and not follow_stream:
+            self.call_after_refresh(
+                raw_log.scroll_to,
+                x=scroll_x,
+                y=min(scroll_y, raw_log.max_scroll_y),
+                animate=False,
+                immediate=True,
+            )
+
+    def _append_workspace_event(self, device_id: str, event: SerialEvent) -> None:
+        session = self.sessions.get(device_id)
+        raw_log = self._workspace_logs.get(device_id)
+        if not session or raw_log is None:
+            return
+
+        follow_stream = self._should_follow_log(raw_log)
+        for line in self._render_raw_event_lines(session, event):
+            raw_log.write(line, scroll_end=follow_stream)
 
     def _refresh_workspace_state(self, device_id: str) -> None:
-        self._render_workspace_session(device_id)
+        self._render_workspace_session(device_id, preserve_scroll=True)
         self._update_workspace_tab_label(device_id)
-        self._update_workspace_status(device_id)
         self._sync_active_device_from_workspace()
 
     def _update_workspace_tab_label(self, device_id: str) -> None:
@@ -736,18 +774,6 @@ class SerialHubApp(App[None]):
             return
         tab = self.query_one("#workspace-tabs", TabbedContent).get_tab(pane_id)
         tab.label = self._workspace_tab_label(device_id)
-
-    def _update_workspace_status(self, device_id: str) -> None:
-        status = self._workspace_statuses.get(device_id)
-        if status is None:
-            return
-
-        connection_text = "Connected" if self._is_device_connected(device_id) else "Disconnected"
-        logging_text = ""
-        session = self.sessions.get(device_id)
-        if session and session.logger and session.logger.is_running:
-            logging_text = " | Logging"
-        status.update(f"{device_id} | {connection_text}{logging_text}")
 
     def _workspace_tab_label(self, device_id: str) -> str:
         state = "live" if self._is_device_connected(device_id) else "saved"
@@ -775,12 +801,15 @@ class SerialHubApp(App[None]):
 
     def _update_workspace_summary(self) -> None:
         summary = self.query_one("#workspace-selection", Static)
+        close_button = self.query_one("#close-active-workspace", Button)
         if not self.active_device_id:
             summary.update("No device workspaces open.")
+            close_button.disabled = True
             return
 
         state = "connected" if self._is_device_connected(self.active_device_id) else "saved"
         summary.update(f"Active workspace: {self.active_device_id} ({state})")
+        close_button.disabled = False
 
     def _remove_workspace_placeholder(self) -> None:
         if not self._workspace_placeholder_visible:
@@ -794,10 +823,13 @@ class SerialHubApp(App[None]):
 
         pane = TabPane(
             "Workspace",
-            Static(
-                "Connect a serial device to create a raw stream workspace tab.",
-                id="workspace-placeholder",
-                classes="hint",
+            Vertical(
+                Static(
+                    "Connect a serial device to create a raw stream workspace tab.",
+                    id="workspace-placeholder",
+                    classes="workspace-content workspace-placeholder-text",
+                ),
+                classes="workspace-pane",
             ),
             id=self.WORKSPACE_PLACEHOLDER_ID,
         )
@@ -808,3 +840,6 @@ class SerialHubApp(App[None]):
 
     def _is_device_connected(self, device_id: str) -> bool:
         return device_id in self.device_manager.connected_ports()
+
+    def _should_follow_log(self, raw_log: RichLog) -> bool:
+        return raw_log.max_scroll_y <= 0 or raw_log.scroll_y >= raw_log.max_scroll_y
