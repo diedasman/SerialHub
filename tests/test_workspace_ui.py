@@ -1,7 +1,7 @@
 import asyncio
 from types import SimpleNamespace
 
-from textual.widgets import Button, Input, TabbedContent, TextArea
+from textual.widgets import Button, Input, Select, TabbedContent, TextArea
 
 from serialhub.app import ScriptEditorScreen, SerialHubApp
 from serialhub.core.models import DeviceInfo, SerialEvent
@@ -43,6 +43,12 @@ class MultiDeviceManager(FakeDeviceManager):
             DeviceInfo(port="COM1", description="Demo Device 1", hwid="HWID-1"),
             DeviceInfo(port="COM2", description="Demo Device 2", hwid="HWID-2"),
         ]
+
+
+class EmptyDeviceManager(FakeDeviceManager):
+    def __init__(self) -> None:
+        super().__init__()
+        self.devices = []
 
 
 def test_script_editor_shortcut_opens_and_closes_screen() -> None:
@@ -215,6 +221,34 @@ def test_left_panel_actions_row_is_docked_to_bottom() -> None:
             await pilot.pause()
             action_row = app.query_one("#left-panel-actions")
             assert str(action_row.styles.dock) == "bottom"
+
+    asyncio.run(scenario())
+
+
+def test_command_config_select_is_blank_without_user() -> None:
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False)
+        app.device_manager = FakeDeviceManager()
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            select = app.query_one("#command-config-select", Select)
+            assert select.is_blank() is True
+            assert select.disabled is True
+
+    asyncio.run(scenario())
+
+
+def test_device_select_is_blank_when_no_devices_are_found() -> None:
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False)
+        app.device_manager = EmptyDeviceManager()
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            select = app.query_one("#device-list", Select)
+            assert app.selected_port is None
+            assert select.is_blank() is True
 
     asyncio.run(scenario())
 

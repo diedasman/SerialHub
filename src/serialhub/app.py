@@ -595,7 +595,7 @@ class SerialHubApp(App[None]):
     def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id == "device-list":
             value = event.value
-            if value is Select.BLANK:
+            if event.select.is_blank():
                 self.selected_port = None
                 if not isinstance(self.screen, UserLoginScreen):
                     self._query_ui("#device-meta", Static).update("Select a port to connect.")
@@ -610,7 +610,7 @@ class SerialHubApp(App[None]):
         if event.select.id == "command-config-select":
             if self._refreshing_command_configs:
                 return
-            if event.value is Select.BLANK:
+            if event.select.is_blank():
                 self._render_command_buttons(None)
                 return
             self._render_command_buttons(str(event.value))
@@ -700,14 +700,14 @@ class SerialHubApp(App[None]):
     def _refresh_command_configs(self) -> None:
         select = self._query_ui("#command-config-select", Select)
         # hint = self._query_ui("#command-config-hint", Static)
-        current_value = None if select.value is Select.BLANK else str(select.value)
+        current_value = None if select.is_blank() else str(select.value)
 
         self._refreshing_command_configs = True
         try:
             self._command_configs = {}
             if not self.current_user:
                 select.set_options([])
-                select.value = Select.BLANK
+                select.clear()
                 select.disabled = True
                 # hint.update("Sign in to load your command config files.")
                 self._render_command_buttons(None, placeholder="Sign in to load function buttons.")
@@ -720,7 +720,7 @@ class SerialHubApp(App[None]):
             select.disabled = not options
 
             if not options:
-                select.value = Select.BLANK
+                select.clear()
                 # hint.update("No command config files were found for this user.")
                 self._render_command_buttons(
                     None,
@@ -819,7 +819,7 @@ class SerialHubApp(App[None]):
 
         if not self.discovered_devices:
             self.selected_port = None
-            device_list.value = Select.BLANK
+            device_list.clear()
             self._query_ui("#device-meta", Static).update(
                 "No serial devices detected. Use the TCP/IP tab to connect by IP."
             )

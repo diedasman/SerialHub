@@ -4,7 +4,7 @@ import threading
 import time
 from collections.abc import Callable
 
-import serial
+import serial # type: ignore
 
 from serialhub.core.models import PARITY_MAP, STOP_BITS_MAP, SerialConfig, SerialEvent
 
