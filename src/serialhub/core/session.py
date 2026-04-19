@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from serialhub.core.models import SerialConfig, SerialEvent
+from serialhub.core.models import ConnectionConfig, DeviceTransport, SerialEvent
 from serialhub.logging.session_logger import SessionLogger
 
 
@@ -10,7 +10,8 @@ from serialhub.logging.session_logger import SessionLogger
 class DeviceSession:
     device_id: str
     port: str
-    config: SerialConfig
+    transport: DeviceTransport
+    config: ConnectionConfig
     raw_events: list[SerialEvent] = field(default_factory=list)
     parsed_lines: list[str] = field(default_factory=list)
     dlms_lines: list[str] = field(default_factory=list)

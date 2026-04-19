@@ -8,8 +8,8 @@ Screen {
 }
 
 .panel {
-    border: solid $primary;
-    background: $surface;
+    border: heavy $primary;
+    background: $background;
     padding: 1;
     margin: 0 1;
 }
@@ -17,6 +17,7 @@ Screen {
 #left-panel {
     width: 18%;
     # min-width: 28;
+    layout: vertical;
 }
 
 #center-panel {
@@ -25,7 +26,7 @@ Screen {
 }
 
 #right-panel {
-    width: 18%;
+    width: 20%;
     # min-width: 30;
 }
 
@@ -34,8 +35,19 @@ Screen {
     text-style: bold;
 }
 
+#label-row {
+    layout: horizontal;
+    height: auto;
+}
+
 #connection-tabs{
-    height: 90%;
+    height: 1fr;
+}
+
+#left-panel-actions {
+    dock: bottom;
+    height: auto;
+    margin-top: 1;
 }
 
 #workspace-tabs {
@@ -70,6 +82,10 @@ TabPane {
     height: auto;
 }
 
+#left-panel-actions Button {
+    width: 1fr;
+}
+
 #workspace-selection,
 #script-active-device {
     width: 1fr;
@@ -78,6 +94,18 @@ TabPane {
 
 #function-buttons-row {
     layout: horizontal;
+}
+
+#command-config-select {
+    # margin-bottom: 1;
+    margin-top: 1;
+}
+
+#command-buttons-scroll {
+    height: 1fr;
+    border: solid $secondary;
+    background: $background;
+    # padding: 0 1;
 }
 
 #timestamp-checkbox,
@@ -109,12 +137,21 @@ TabPane {
 }
 
 #workspace-placeholder {
+    # content-align: right bottom;
     content-align: center middle;
+}
+
+#logo {
+        
 }
 
 .workspace-placeholder-text {
     color: $accent;
     margin-bottom: 0;
+}
+
+#workspace-tabs {
+    height: 70%;
 }
 
 #tx-input {
@@ -143,9 +180,61 @@ TabPane {
 #baud-select,
 #parity-select,
 #stopbits-select,
-#databits-select,
-#log-filename {
+#databits-select {
     margin-bottom: 1;
+}
+
+#auto-log-checkbox {
+    margin-bottom: 1;
+    margin-right: 1;
+    width: 1fr;
+}
+
+#log-filepath {
+    margin-top: 1;
+    margin-bottom: 1;
+    margin-right: 1;
+    width: 58%;
+}
+
+#toggle-logging {
+    margin-top: 1;
+    margin-bottom: 1;
+    margin-right: 1;
+}
+
+.command-button {
+    width: 40%;
+    margin-bottom: 1;
+    margin-right: 1;
+    # margin-left: 1;
+}
+
+.command-row {
+    layout: horizontal;
+    height: auto;
+}
+
+.command-group {
+    margin-bottom: 1;
+    padding-left: 1;
+    border-left: heavy $panel;
+    border-bottom: heavy $panel;
+    height: auto;
+}
+
+.command-group-title {
+    color: $secondary;
+    text-style: bold;
+    margin: 1 0;
+}
+
+.command-depth-2 {
+    # border-left: solid $secondary;
+}
+
+.command-depth-3 {
+    border-left: solid $accent;
 }
 
 .wide-btn {
@@ -154,31 +243,40 @@ TabPane {
     color: $secondary;
 }
 
+#ip-input {
+    margin-bottom: 1;
+}
+
+#port-input {
+    margin-bottom: 1;
+}
+
 .hint {
     color: $accent;
     margin-bottom: 1;
 }
 
 #script-screen {
-    background: $surface;
-    padding: 1 2;
+    # background: $panel;
+    # border: heavy $accent;
+    padding: 1 1;
 }
 
 #script-editor {
     height: 1fr;
     min-height: 12;
     border: solid $secondary;
-    background: $panel;
+    background: $background;
 }
 
 #footer-row {
     height: 1;
-    background: $surface;
+    background: $background;
 }
 
 #app-footer {
     width: 1fr;
-    background: $surface;
+    background: $background;
     color: $foreground;
 }
 

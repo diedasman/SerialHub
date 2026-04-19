@@ -1,7 +1,7 @@
 import asyncio
 from types import SimpleNamespace
 
-from textual.widgets import Button
+from textual.widgets import Button, Input, TabbedContent, TextArea
 
 from serialhub.app import ScriptEditorScreen, SerialHubApp
 from serialhub.core.models import DeviceInfo, SerialEvent
@@ -17,6 +17,10 @@ class FakeDeviceManager:
 
     def connect(self, port: str, config, event_callback):
         self.connected.add(port)
+        return SimpleNamespace(is_open=True)
+
+    def connect_tcp(self, config, event_callback):
+        self.connected.add(config.device_id)
         return SimpleNamespace(is_open=True)
 
     def disconnect(self, device_id: str) -> None:
@@ -43,13 +47,23 @@ class MultiDeviceManager(FakeDeviceManager):
 
 def test_script_editor_shortcut_opens_and_closes_screen() -> None:
     async def scenario() -> None:
-        app = SerialHubApp()
+        app = SerialHubApp(require_login=False)
         app.device_manager = FakeDeviceManager()
 
         async with app.run_test() as pilot:
-            app.action_toggle_script_editor()
+            tx_input = app.query_one("#tx-input", Input)
+            tx_input.value = "draft"
+            tx_input.cursor_position = 0
+            tx_input.focus()
+            await pilot.pause()
+
+            await pilot.press("ctrl+e")
             await pilot.pause()
             assert isinstance(app.screen, ScriptEditorScreen)
+
+            script_editor = app.screen.query_one("#script-editor", TextArea)
+            script_editor.focus()
+            await pilot.pause()
 
             await pilot.press("ctrl+e")
             await pilot.pause()
@@ -58,9 +72,34 @@ def test_script_editor_shortcut_opens_and_closes_screen() -> None:
     asyncio.run(scenario())
 
 
+def test_workspace_updates_continue_while_script_editor_screen_is_open() -> None:
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False)
+        app.device_manager = FakeDeviceManager()
+
+        async with app.run_test() as pilot:
+            app._connect_selected_device()
+            await pilot.pause()
+
+            app.action_toggle_script_editor()
+            await pilot.pause()
+            assert isinstance(app.screen, ScriptEditorScreen)
+
+            app._handle_serial_event_ui(
+                SerialEvent(device_id="COM1", port="COM1", direction="RX", payload=b"hello-from-device")
+            )
+            await pilot.pause()
+
+            assert app.active_device_id == "COM1"
+            assert "COM1" in app._workspace_logs
+            assert len(app.sessions["COM1"].raw_events) >= 1
+
+    asyncio.run(scenario())
+
+
 def test_disconnect_preserves_workspace_until_close() -> None:
     async def scenario() -> None:
-        app = SerialHubApp()
+        app = SerialHubApp(require_login=False)
         app.device_manager = FakeDeviceManager()
 
         async with app.run_test() as pilot:
@@ -77,7 +116,7 @@ def test_disconnect_preserves_workspace_until_close() -> None:
 
             assert "COM1" in app.sessions
             assert app.active_device_id == "COM1"
-            assert app.query_one("#workspace-selection").renderable == "Active workspace: COM1 (saved)"
+            assert str(app.query_one("#workspace-selection").render()) == "Active workspace: COM1 (saved)"
             assert app.query_one("#close-active-workspace", Button).disabled is False
 
             app._close_workspace_for_device("COM1")
@@ -85,7 +124,7 @@ def test_disconnect_preserves_workspace_until_close() -> None:
 
             assert "COM1" not in app.sessions
             assert app.active_device_id is None
-            assert app.query_one("#workspace-selection").renderable == "No device workspaces open."
+            assert str(app.query_one("#workspace-selection").render()) == "No device workspaces open."
             assert app.query_one("#close-active-workspace", Button).disabled is True
 
     asyncio.run(scenario())
@@ -93,7 +132,7 @@ def test_disconnect_preserves_workspace_until_close() -> None:
 
 def test_toolbar_close_button_closes_active_workspace() -> None:
     async def scenario() -> None:
-        app = SerialHubApp()
+        app = SerialHubApp(require_login=False)
         app.device_manager = FakeDeviceManager()
 
         async with app.run_test() as pilot:
@@ -111,7 +150,7 @@ def test_toolbar_close_button_closes_active_workspace() -> None:
 
 def test_workspace_log_scroll_does_not_jump_when_user_is_reading_history() -> None:
     async def scenario() -> None:
-        app = SerialHubApp()
+        app = SerialHubApp(require_login=False)
         app.device_manager = FakeDeviceManager()
 
         async with app.run_test() as pilot:
@@ -146,7 +185,7 @@ def test_workspace_log_scroll_does_not_jump_when_user_is_reading_history() -> No
 
 def test_second_connected_device_keeps_workspace_log_visible() -> None:
     async def scenario() -> None:
-        app = SerialHubApp()
+        app = SerialHubApp(require_login=False)
         app.device_manager = MultiDeviceManager()
 
         async with app.run_test() as pilot:
@@ -163,5 +202,71 @@ def test_second_connected_device_keeps_workspace_log_visible() -> None:
             assert app.active_device_id == "COM2"
             assert raw_log.region.height > 0
             assert raw_log.size.height > 0
+
+    asyncio.run(scenario())
+
+
+def test_left_panel_actions_row_is_docked_to_bottom() -> None:
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False)
+        app.device_manager = FakeDeviceManager()
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            action_row = app.query_one("#left-panel-actions")
+            assert str(action_row.styles.dock) == "bottom"
+
+    asyncio.run(scenario())
+
+
+def test_tcp_tab_connects_workspace_from_ip_and_port() -> None:
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False)
+        app.device_manager = FakeDeviceManager()
+
+        async with app.run_test() as pilot:
+            connection_tabs = app.query_one("#connection-tabs", TabbedContent)
+            connection_tabs.active = "connection-tcp"
+            app.query_one("#ip-input", Input).value = "192.168.0.10"
+            app.query_one("#port-input", Input).value = "4059"
+            await pilot.pause()
+
+            await pilot.click("#connect-btn")
+            await pilot.pause()
+
+            assert "192.168.0.10:4059" in app.sessions
+            assert app.sessions["192.168.0.10:4059"].transport == "tcp"
+            assert app.active_device_id == "192.168.0.10:4059"
+            assert "192.168.0.10:4059" in app._workspace_logs
+            assert str(app.query_one("#workspace-selection").render()) == (
+                "Active workspace: 192.168.0.10:4059 (connected)"
+            )
+
+    asyncio.run(scenario())
+
+
+def test_tcp_disconnect_preserves_workspace_until_closed() -> None:
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False)
+        app.device_manager = FakeDeviceManager()
+
+        async with app.run_test() as pilot:
+            connection_tabs = app.query_one("#connection-tabs", TabbedContent)
+            connection_tabs.active = "connection-tcp"
+            app.query_one("#ip-input", Input).value = "192.168.0.10"
+            app.query_one("#port-input", Input).value = "4059"
+            await pilot.pause()
+
+            await pilot.click("#connect-btn")
+            await pilot.pause()
+
+            app._disconnect_active_device()
+            await pilot.pause()
+
+            assert "192.168.0.10:4059" in app.sessions
+            assert app.active_device_id == "192.168.0.10:4059"
+            assert str(app.query_one("#workspace-selection").render()) == (
+                "Active workspace: 192.168.0.10:4059 (saved)"
+            )
 
     asyncio.run(scenario())

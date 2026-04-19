@@ -11,6 +11,8 @@ build/
 dist/
 .vscode/
 .idea/
+users/
+.codex-smoke-appdata
 
 # Local app data overrides
 *.log

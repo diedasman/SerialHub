@@ -15,6 +15,10 @@ _BYTESIZE_MAP = {
     8: serial.EIGHTBITS,
 }
 
+_MAX_COALESCED_READ = 4096
+_MAX_COALESCE_SECONDS = 0.2
+_MIN_IDLE_GAP_SECONDS = 0.002
+
 
 class SerialConnection:
     def __init__(
@@ -90,6 +94,32 @@ class SerialConnection:
         )
         return written
 
+    def _burst_idle_gap(self) -> float:
+        parity_bits = 0 if self.config.parity == "N" else 1
+        bits_per_char = 1 + self.config.databits + parity_bits + float(self.config.stopbits)
+        return max(_MIN_IDLE_GAP_SECONDS, (bits_per_char / self.config.baudrate) * 2)
+
+    def _read_chunk(self, serial_obj: serial.Serial) -> bytes:
+        pending = serial_obj.in_waiting
+        chunk = serial_obj.read(pending or 1)
+        if not chunk:
+            return b""
+
+        idle_gap = self._burst_idle_gap()
+        deadline = time.monotonic() + _MAX_COALESCE_SECONDS
+        while len(chunk) < _MAX_COALESCED_READ and not self._stop_event.is_set():
+            # Hold the event open until the line goes idle so one device burst
+            # stays together instead of splitting the leading byte.
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(min(idle_gap, remaining))
+            pending = min(serial_obj.in_waiting, _MAX_COALESCED_READ - len(chunk))
+            if pending <= 0:
+                break
+            chunk += serial_obj.read(pending)
+        return chunk
+
     def _reader_loop(self) -> None:
         while not self._stop_event.is_set():
             try:
@@ -98,8 +128,7 @@ class SerialConnection:
                 if not serial_obj or not serial_obj.is_open:
                     return
 
-                pending = serial_obj.in_waiting
-                chunk = serial_obj.read(pending or 1)
+                chunk = self._read_chunk(serial_obj)
                 if chunk:
                     self._event_callback(
                         SerialEvent(device_id=self.device_id, port=self.port, direction="RX", payload=chunk)

@@ -5,13 +5,14 @@ from collections.abc import Callable
 
 from serial.tools import list_ports
 
-from serialhub.core.models import DeviceInfo, SerialConfig, SerialEvent
+from serialhub.core.models import DeviceConnection, DeviceInfo, SerialConfig, SerialEvent, TcpConfig
 from serialhub.core.serial_connection import SerialConnection
+from serialhub.core.tcp_connection import TcpConnection
 
 
 class DeviceManager:
     def __init__(self) -> None:
-        self._connections: dict[str, SerialConnection] = {}
+        self._connections: dict[str, DeviceConnection] = {}
         self._lock = threading.Lock()
 
     def scan_devices(self) -> list[DeviceInfo]:
@@ -34,7 +35,37 @@ class DeviceManager:
             conn = SerialConnection(device_id=port, port=port, config=config, event_callback=event_callback)
             self._connections[port] = conn
 
-        conn.open()
+        try:
+            conn.open()
+        except Exception:
+            with self._lock:
+                if self._connections.get(port) is conn:
+                    self._connections.pop(port, None)
+            raise
+        return conn
+
+    def connect_tcp(
+        self,
+        config: TcpConfig,
+        event_callback: Callable[[SerialEvent], None],
+    ) -> TcpConnection:
+        device_id = config.device_id
+        with self._lock:
+            existing = self._connections.get(device_id)
+            if existing and existing.is_open:
+                if isinstance(existing, TcpConnection):
+                    return existing
+                raise RuntimeError(f"{device_id} is already in use by another transport.")
+            conn = TcpConnection(device_id=device_id, config=config, event_callback=event_callback)
+            self._connections[device_id] = conn
+
+        try:
+            conn.open()
+        except Exception:
+            with self._lock:
+                if self._connections.get(device_id) is conn:
+                    self._connections.pop(device_id, None)
+            raise
         return conn
 
     def disconnect(self, device_id: str) -> None:
@@ -52,7 +83,7 @@ class DeviceManager:
         for device_id in ids:
             self.disconnect(device_id)
 
-    def get_connection(self, device_id: str) -> SerialConnection | None:
+    def get_connection(self, device_id: str) -> DeviceConnection | None:
         with self._lock:
             return self._connections.get(device_id)
 

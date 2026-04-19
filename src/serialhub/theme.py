@@ -53,6 +53,11 @@ APP_THEMES = {
 def normalize_theme_mode(value: object | None) -> str:
     if isinstance(value, str) and value.lower() in APP_THEMES:
         return value.lower()
+    if isinstance(value, str):
+        lowered = value.lower()
+        for mode, theme in APP_THEMES.items():
+            if lowered == theme.name.lower():
+                return mode
     return DEFAULT_THEME_MODE
 
 

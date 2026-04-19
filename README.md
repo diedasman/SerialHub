@@ -1,14 +1,42 @@
 # SerialHub
 
-SerialHub is a cross-platform serial tool with two local launch modes: the native Textual terminal UI and the same Textual app served in a browser from your machine. It is focused on practical multi-device serial workflows, persistent per-device workspaces, automation scripts, and per-device logging while keeping the DLMS integration in the codebase for upcoming UI work.
+SerialHub is a cross-platform serial tool with two local launch modes: the native Textual terminal UI and the same Textual app served in a browser from your machine. It is focused on practical multi-device serial workflows, local user profiles, persistent per-device workspaces, automation scripts, and per-device logging while keeping the DLMS integration in the codebase for upcoming UI work.
+
+```
+                                                                                                    
+ ::::::::  :::::::::: :::::::::  :::::::::::     :::     :::        :::    ::: :::    ::: :::::::::  
+:+:    :+: :+:        :+:    :+:     :+:       :+: :+:   :+:        :+:    :+: :+:    :+: :+:    :+: 
++:+        +:+        +:+    +:+     +:+      +:+   +:+  +:+        +:+    +:+ +:+    +:+ +:+    +:+ 
++#++:++#++ +#++:++#   +#++:++#:      +#+     +#++:++#++: +#+        +#++:++#++ +#+    +:+ +#++:++#+  
+       +#+ +#+        +#+    +#+     +#+     +#+     +#+ +#+        +#+    +#+ +#+    +#+ +#+    +#+ 
+#+#    #+# #+#        #+#    #+#     #+#     #+#     #+# #+#        #+#    #+# #+#    #+# #+#    #+# 
+ ########  ########## ###    ### ########### ###     ### ########## ###    ###  ########  #########  
+ 
+```
 
 Right now the app is focused on a raw serial workflow:
 
 - Detect USB/serial devices and connect with configurable serial settings
+- Sign in with a local SerialHub user profile and optional remember-me startup
 - Create a dedicated workspace tab for each connected serial device
 - Preserve disconnected device tabs and captured stream history until the user closes them
 - Open a dedicated script editor screen without losing the main workspace state
-- Log sessions per device with timestamp, direction, HEX, and ASCII
+- Trigger user-defined command buttons from per-user JSON config files
+- Log sessions per device with timestamp and data stream
+
+## Tamble of Contents
+
+- [Features](#features)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [How To Run](#how-to-run)
+- [Updating SerialHub](#updating-serialhub)
+- [First-Time Setup In The App](#first-time-setup-in-the-app)
+- [Using The Main Workflow](#using-the-main-workflow)
+- [Generated Output Structure](#generated-output-structure)
+- [User Data and Loggin](#user-data-and-logging)
+- [Development Commands](#development-commands)
+- [Repository Standards](#repository-standards)
 
 ## Features
 
@@ -16,9 +44,11 @@ Right now the app is focused on a raw serial workflow:
   - Textual terminal UI via `serialhub`
   - The same Textual app in a browser via `serialhub --web`
 - Cross-platform serial tooling (Windows + Linux)
+- Username-based login screen with `Remember Me` and `New User`
+- Local per-user storage under the SerialHub application-data directory
 - Multi-device management with independent sessions
 - Manual refresh and auto-discovery of available serial ports
-- Connection panel tabs for `Serial`, `TCP/IP`, and `DLMS`
+- Connection panel tabs for `Serial` and `TCP/IP`
 - Device selection via dynamic dropdown list
 - Serial configuration control:
   - Baud rate
@@ -37,13 +67,16 @@ Right now the app is focused on a raw serial workflow:
   - `on_pattern`
   - `send`, `sleep`, `wait_for`, `log`
 - Per-device start/stop logging to `.txt`
-- User-defined log filename (stored in `logs/`)
+- Log destination input accepts either:
+  - an existing folder path, which generates `<device-id>-YYYYMMDD-HHMMSS.txt`
+  - an explicit `.txt` path, which is used as-is
 - Optional auto-logging on connect (checkbox toggle)
+- Right-side `Functions` panel with:
+  - command-config dropdown sourced from the active user's `COMMAND_CONFIGS`
+  - dynamically generated buttons from nested `COMMANDS` JSON objects
 - Timestamp display toggle via checkbox
 - Keyboard shortcuts for message focus, connect/disconnect, logging toggle, script editor, and theme toggle
 - Built-in dark and light themes
-- No command palette and no header
-- Branded footer: `SerialHub - by @diedasman`
 
 ## Requirements
 
@@ -69,7 +102,7 @@ Important: every install command below assumes your terminal is inside the proje
 
 ### 2. Create a virtual environment
 
-Windows PowerShell:
+#### Windows PowerShell:
 
 ```powershell
 python -m venv .venv
@@ -78,7 +111,7 @@ python -m venv .venv
 .venv\Scripts\Activate.ps1
 ```
 
-Windows Command Prompt:
+#### Windows Command Prompt:
 
 ```bat
 python -m venv .venv
@@ -87,7 +120,7 @@ python -m venv .venv
 .venv\Scripts\activate.bat
 ```
 
-Linux:
+#### Linux:
 
 ```bash
 python3 -m venv .venv
@@ -107,7 +140,7 @@ python -m pip install -e .
 
 This installs the `serialhub` command from the local source tree in editable mode.
 
-#### 4. Summary
+#### 4. Summary (Powershell)
 
 ```bash
 git clone https://github.com/diedasman/SerialHub.git
@@ -174,7 +207,7 @@ serialhub --web --host 0.0.0.0 --port 8000
 
 By default SerialHub stores local app data in a per-user application data folder:
 
-- Windows: `%APPDATA%\SerialHub`
+- Windows: `%LOCALAPPDATA%\SerialHub`
 - Linux: `$XDG_DATA_HOME/SerialHub` or `~/.local/share/SerialHub`
 
 You can override the storage location by setting `SERIALHUB_DATA_DIR` before launch.
@@ -204,14 +237,17 @@ python -m pip install -e .
 
 When the app opens:
 
-1. Click `Refresh` to load serial ports.
-2. Select a port from the `Serial` tab in the `Connection` panel.
-3. Set your connection parameters in the `CONNECTION` panel (including baud from dropdown).
-4. Press `Connect`.
-5. SerialHub creates or reuses a workspace tab for that device in the `Workspace` panel.
-6. Optional: set `LOGGING` filename and enable auto-logging with the checkbox.
-7. Start sending or receiving data.
-8. Close a workspace tab when you want to remove its saved session history.
+1. Enter a username on the login screen.
+2. Optional: enable `Remember Me` to sign back into that local profile automatically next time.
+3. Use `New User` once to generate the local user folder and starter JSON files if the profile does not exist yet.
+4. Click `Refresh` to load serial ports.
+5. Select a port from the `Serial` tab in the `Connection` panel.
+6. Set your connection parameters in the `Connection` panel.
+7. Press `Connect`.
+8. Optional: paste an existing log folder path or a full `.txt` log path into `Log filepath`, then enable auto-logging if needed.
+9. Optional: pick a command config in the `Functions` panel to load user-defined message buttons.
+10. Start sending or receiving data.
+11. Close a workspace tab when you want to remove its saved session history.
 
 Browser mode exposes the same Textual workflow through the browser by serving `SerialHubApp` itself, rather than maintaining a separate HTML frontend.
 
@@ -222,8 +258,10 @@ Browser mode exposes the same Textual workflow through the browser by serving `S
 3. Use the TX input field to send text payloads.
 4. Enable `HEX TX` when sending raw hex payloads.
 5. Toggle `Timestamps` when needed.
-6. Use `Start Logging` / `Stop Logging` for the active workspace.
-7. Open `Script Editor` when you want to automate the active device.
+6. Paste a log folder or full `.txt` file path into `Log filepath` when you want logs written outside the app data folder.
+7. Use `Start Logging` / `Stop Logging` for the active workspace.
+8. Pick a command config from the `Functions` panel and press a generated button to send its payload to the active device.
+9. Open `Script Editor` when you want to automate the active device.
 
 ### CLI Keyboard Shortcuts
 
@@ -249,25 +287,39 @@ Browser mode exposes the same Textual workflow through the browser by serving `S
 
 ## Generated Output Structure
 
-For a device `COM3`, logs are stored in:
+SerialHub now keeps runtime user files under the local application-data directory. For a user `alice`, the generated structure looks like:
 
 ```text
 <SerialHub data dir>/
-  logs/
-    COM3-20260331-210000.txt
+  users/
+    alice/
+      alice.json
+      alice_cmds.json
+      blank.json
+      logs/
+        COM3-20260418-210000.txt
+      message_history.txt
 ```
 
 Notes:
 
-- Each log file includes timestamp, device ID, direction, HEX, and ASCII.
-- Logs are started/stopped per active device.
+- If `Log filepath` points to an existing folder, SerialHub generates the filename automatically.
+- If `Log filepath` points to a `.txt` file, SerialHub writes to that exact file.
 
 ## User Data And Logging
 
 SerialHub stores local metadata and user content in its data directory:
 
-- `logs/*.txt`
-  - per-device communication logs
+- `users/<username>/<username>.json`
+  - the active user's profile metadata (`THEME`, `LOG_FOLDER`, `COMMAND_CONFIGS`)
+- `users/<username>/*.json`
+  - command config files referenced by `COMMAND_CONFIGS`
+- `users/<username>/logs/*.txt`
+  - fallback per-device communication logs when no external log folder is supplied
+- `users/<username>/message_history.txt`
+  - sent-message history for that user
+
+The `LOG_FOLDER` value is mirrored in the `Log filepath` field and may be either a directory path or an explicit `.txt` path.
 
 Example override:
 
@@ -303,23 +355,4 @@ python -m compileall src tests
 - Changelog: [CHANGELOG.md](CHANGELOG.md)
 - CI: GitHub Actions workflow at `.github/workflows/ci.yml`
 
-## Current Scope
-
-Implemented in this version:
-
-- Serial terminal with configurable COM settings
-- Local browser mode with automatic localhost launch
-- Persistent per-device raw workspace tabs
-- Dedicated script editor screen with shortcut access
-- Dark/light theme toggle
-- GURUX-backed DLMS decode integration retained in the backend
-- Embedded script runtime with event hooks
-- Per-device logging
-
-Planned / next:
-
-- Deeper DLMS meter read workflows (association/auth profiles)
-- Modbus RTU/TCP modules
-- Plugin protocol adapters
-- Enhanced filtering/highlighting and stream graphing
-- Structured log exports (CSV/JSON)
+---

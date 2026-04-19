@@ -2,6 +2,46 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - 2026-04-19
+
+### Added
+
+- Added raw TCP/IP device connections from the existing `TCP/IP` tab using an IP address and port.
+- Added an asyncio-driven TCP transport service that keeps socket I/O out of the Textual UI flow.
+- Added regression coverage for TCP socket send/receive behavior and TCP workspace creation/disconnect flow.
+- Added `Ctrl+Q` logout support that returns the app to the login screen and clears the remembered user.
+- Added up/down TX message history recall backed by each user's `message_history.txt`.
+
+### Changed
+
+- Connection/session management now supports both serial and TCP transports while preserving the current DLMS core code paths for future work.
+- Workspace and serial-device empty states now make it clear that TCP/IP connections remain available even when no serial ports are detected.
+- Reworked the left-panel connection actions to use a docked bottom action row instead of percentage-based spacing.
+
+### Fixed
+
+- Fixed serial RX burst coalescing so the first character of a device message is no longer emitted as its own event when the port wakes from idle.
+- Added a regression test covering the leading-byte split seen on live serial traffic.
+- Fixed the `Ctrl+E` script editor shortcut so it works even when the focused widget would normally consume that key.
+
+## [Unreleased] - 2026-04-18
+
+### Added
+
+- Added a startup login screen with username entry, `Remember Me`, and `New User`.
+- Added local per-user profile storage under the SerialHub app-data directory.
+- Added automatic user-folder generation with starter profile and command-config JSON files.
+- Added a dynamic `Functions` panel that loads command-config choices from the active user's `COMMAND_CONFIGS`.
+- Added generated function buttons for nested user command JSON structures.
+- Added tests covering user-profile storage, remembered login state, and the login screen flow.
+
+### Changed
+
+- Logging now accepts either an existing folder path or an explicit `.txt` path in the `Log filepath` input.
+- Directory-based logging now generates filenames from the device identifier and timestamp.
+- Theme preference, log path, command-config references, and message history are now stored per user.
+- Updated README documentation for the new login, user storage, logging, and functions-panel workflow.
+
 ## [Unreleased] - 2026-04-17
 
 ### Added

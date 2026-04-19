@@ -44,15 +44,15 @@ class SessionLogger:
 
     def log_event(self, event: SerialEvent) -> None:
         if event.direction in {"RX", "TX"}:
-            payload_hex = event.payload_hex()
-            payload_ascii = event.payload_ascii()
+            payload_text = (event.payload or b"").decode("utf-8", errors="replace").rstrip("\r\n")
             line = (
                 f"{event.timestamp.isoformat(timespec='milliseconds')}"
-                f" | {event.device_id} | {event.direction} | HEX={payload_hex} | ASCII={payload_ascii}"
+                f" {payload_text}"
+                # f" | {event.device_id} | {event.direction} | HEX={payload_hex} | ASCII={payload_ascii}"
             )
         else:
             line = (
                 f"{event.timestamp.isoformat(timespec='milliseconds')}"
-                f" | {event.device_id} | {event.direction} | {event.text or ''}"
+                # f" | {event.device_id} | {event.direction} | {event.text or ''}"
             )
         self.write(line)
