@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
@@ -46,6 +46,8 @@ from serialhub.user_profiles import (
     get_remembered_username,
     get_user_default_logs_dir,
     get_user_message_history_path,
+    get_user_tcp_ip_history_path,
+    get_user_tcp_port_history_path,
     load_command_configs,
     load_user_profile,
     normalize_username,
@@ -54,28 +56,57 @@ from serialhub.user_profiles import (
 )
 
 
+INPUT_HISTORY_MESSAGE = "message"
+INPUT_HISTORY_TCP_IP = "tcp-ip"
+INPUT_HISTORY_TCP_PORT = "tcp-port"
+
+_INPUT_HISTORY_SELECTORS = {
+    INPUT_HISTORY_MESSAGE: "#tx-input",
+    INPUT_HISTORY_TCP_IP: "#ip-input",
+    INPUT_HISTORY_TCP_PORT: "#port-input",
+}
+
+_INPUT_HISTORY_FALLBACK_FILENAMES = {
+    INPUT_HISTORY_MESSAGE: "message_history.txt",
+    INPUT_HISTORY_TCP_IP: "tcp_ip_history.txt",
+    INPUT_HISTORY_TCP_PORT: "tcp_port_history.txt",
+}
+
+
 @dataclass(slots=True)
 class CommandButtonSpec:
     label: str
     payload: str
 
 
-class MessageHistoryInput(Input):
+@dataclass(slots=True)
+class InputHistoryState:
+    cache: list[str] = field(default_factory=list)
+    index: int | None = None
+    draft: str = ""
+    ignore_next_change: bool = False
+
+
+class HistoryInput(Input):
     BINDINGS = [
         *Input.BINDINGS,
         Binding("up", "history_previous", show=False),
         Binding("down", "history_next", show=False),
     ]
 
+    def __init__(self, *args, history_id: str, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.history_id = history_id
+
     def action_history_previous(self) -> None:
         app = getattr(self, "app", None)
-        if app is not None and hasattr(app, "_navigate_message_history"):
-            app._navigate_message_history(-1)
+        if app is not None and hasattr(app, "_navigate_input_history"):
+            app._navigate_input_history(self.history_id, -1)
 
     def action_history_next(self) -> None:
         app = getattr(self, "app", None)
-        if app is not None and hasattr(app, "_navigate_message_history"):
-            app._navigate_message_history(1)
+        if app is not None and hasattr(app, "_navigate_input_history"):
+            app._navigate_input_history(self.history_id, 1)
 
 
 class UserLoginScreen(ModalScreen[None]):
@@ -268,10 +299,10 @@ class SerialHubApp(App[None]):
         self._command_configs: dict[str, CommandConfig] = {}
         self._command_buttons: dict[str, CommandButtonSpec] = {}
         self._refreshing_command_configs = False
-        self._message_history_cache: list[str] = []
-        self._message_history_index: int | None = None
-        self._message_history_draft = ""
-        self._ignore_next_tx_input_change = False
+        self._input_history_states = {
+            history_id: InputHistoryState()
+            for history_id in _INPUT_HISTORY_SELECTORS
+        }
 
         self._ascii_decoder = AsciiBinaryDecoder()
         self._dlms_decoder = GuruxDlmsDecoder()
@@ -364,8 +395,17 @@ class SerialHubApp(App[None]):
                             id="tcp-meta",
                             classes="hint",
                         )
-                        yield Input(placeholder="IP Address", id="ip-input")
-                        yield Input(placeholder="TCP Port", id="port-input")
+                        yield HistoryInput(
+                            placeholder="IP Address",
+                            id="ip-input",
+                            history_id=INPUT_HISTORY_TCP_IP,
+                        )
+                        yield HistoryInput(
+                            placeholder="TCP Port",
+                            id="port-input",
+                            history_id=INPUT_HISTORY_TCP_PORT,
+                        )
+                        yield Button("Clear", id="clear-tcp-inputs")
 
                     # with TabPane("DLMS", id="connection-dlms"):
                     #     yield Static("DLMS tools will return in a later update.", classes="hint")
@@ -391,7 +431,11 @@ class SerialHubApp(App[None]):
                         )
                     
                 with Horizontal(id="tx-row"):
-                    yield MessageHistoryInput(placeholder="Type message or hex payload...", id="tx-input")
+                    yield HistoryInput(
+                        placeholder="Type message or hex payload...",
+                        id="tx-input",
+                        history_id=INPUT_HISTORY_MESSAGE,
+                    )
                     yield Select(
                         id="tx-terminate-option",
                         value="none",
@@ -450,7 +494,7 @@ class SerialHubApp(App[None]):
     def action_focus_message_input(self) -> None:
         tx_input = self._query_ui("#tx-input", Input)
         tx_input.focus()
-        self._message_history_draft = tx_input.value
+        self._set_input_history_draft(INPUT_HISTORY_MESSAGE, tx_input.value)
 
     def action_toggle_connect_disconnect(self) -> None:
         if self._active_connection_tab() == "connection-tcp":
@@ -493,8 +537,9 @@ class SerialHubApp(App[None]):
         self.theme_mode = DEFAULT_THEME_MODE
         self.theme = resolve_textual_theme_name(self.theme_mode)
         set_remembered_username(None)
-        self._reset_message_history_state()
+        self._reset_all_input_history_states()
         self._set_tx_input_value("")
+        self._clear_tcp_details_inputs(focus=False)
         self._refresh_user_dependent_ui()
         self._show_login_screen()
         self.notify("Logged out.")
@@ -556,6 +601,10 @@ class SerialHubApp(App[None]):
             self._disconnect_active_device()
             return
 
+        if button_id == "clear-tcp-inputs":
+            self._clear_tcp_details_inputs()
+            return
+
         if button_id == "send-btn":
             self._send_current_input()
             return
@@ -579,12 +628,14 @@ class SerialHubApp(App[None]):
             self._connect_selected_device()
 
     def on_input_changed(self, event: Input.Changed) -> None:
-        if event.input.id == "tx-input":
-            if self._ignore_next_tx_input_change:
-                self._ignore_next_tx_input_change = False
+        history_id = self._history_id_for_input(event.input.id or "")
+        if history_id:
+            state = self._input_history_state(history_id)
+            if state.ignore_next_change:
+                state.ignore_next_change = False
                 return
-            self._message_history_index = None
-            self._message_history_draft = event.input.value
+            state.index = None
+            state.draft = event.input.value
             return
 
         if event.input.id != "log-filepath" or not self.current_user:
@@ -667,7 +718,7 @@ class SerialHubApp(App[None]):
         self.current_user = profile
         self.theme_mode = normalize_theme_mode(profile.theme)
         self.theme = resolve_textual_theme_name(profile.theme)
-        self._reset_message_history_state()
+        self._reset_all_input_history_states()
         self._refresh_user_dependent_ui()
 
         if remember is True:
@@ -968,6 +1019,11 @@ class SerialHubApp(App[None]):
             self.notify(f"Connection failed: {exc}", severity="error")
             return
 
+        self._save_to_input_history(INPUT_HISTORY_TCP_IP, config.host)
+        self._save_to_input_history(INPUT_HISTORY_TCP_PORT, str(config.port))
+        self._reset_input_history_state(INPUT_HISTORY_TCP_IP)
+        self._reset_input_history_state(INPUT_HISTORY_TCP_PORT)
+
         self._ensure_workspace_for_device(device_id)
         self._set_active_workspace(device_id)
 
@@ -976,6 +1032,14 @@ class SerialHubApp(App[None]):
 
         self._refresh_workspace_state(device_id)
         self.notify(f"Connected to {device_id}")
+
+    def _clear_tcp_details_inputs(self, *, focus: bool = True) -> None:
+        self._reset_input_history_state(INPUT_HISTORY_TCP_IP)
+        self._reset_input_history_state(INPUT_HISTORY_TCP_PORT)
+        self._set_history_input_value(INPUT_HISTORY_TCP_IP, "")
+        self._set_history_input_value(INPUT_HISTORY_TCP_PORT, "")
+        if focus:
+            self._query_ui("#ip-input", Input).focus()
 
     def _disconnect_active_device(self) -> None:
         target = self._resolve_disconnect_target()
@@ -1091,7 +1155,7 @@ class SerialHubApp(App[None]):
 
         self._send_payload(device_id, payload)
         self._save_to_message_history(command.payload)
-        self._message_history_cache = []
+        self._invalidate_input_history_cache(INPUT_HISTORY_MESSAGE)
 
     def _send_payload(self, device_id: str, payload: bytes) -> None:
         conn = self.device_manager.get_connection(device_id)
@@ -1104,37 +1168,67 @@ class SerialHubApp(App[None]):
         except Exception as exc:
             self.notify(f"Send failed: {exc}", severity="error")
 
-    def _save_to_message_history(self, message: str) -> None:
+    def _input_history_state(self, history_id: str) -> InputHistoryState:
+        return self._input_history_states[history_id]
+
+    def _history_id_for_input(self, input_id: str) -> str | None:
+        for history_id, selector in _INPUT_HISTORY_SELECTORS.items():
+            if selector.removeprefix("#") == input_id:
+                return history_id
+        return None
+
+    def _input_selector_for_history(self, history_id: str) -> str:
+        return _INPUT_HISTORY_SELECTORS[history_id]
+
+    def _set_input_history_draft(self, history_id: str, value: str) -> None:
+        self._input_history_state(history_id).draft = value
+
+    def _invalidate_input_history_cache(self, history_id: str) -> None:
+        self._input_history_state(history_id).cache = []
+
+    def _save_to_input_history(self, history_id: str, value: str) -> None:
         try:
-            history_path = self._get_message_history_path()
+            history_path = self._get_input_history_path(history_id)
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             with history_path.open("a", encoding="utf-8") as history_file:
-                history_file.write(f"[{timestamp}] {message}\n")
-            self._message_history_cache = []
+                history_file.write(f"[{timestamp}] {value}\n")
+            self._invalidate_input_history_cache(history_id)
         except Exception:
             pass
 
-    def _get_message_history_path(self) -> Path:
+    def _get_input_history_path(self, history_id: str) -> Path:
         if self.current_user:
-            return get_user_message_history_path(self.current_user.username)
+            if history_id == INPUT_HISTORY_MESSAGE:
+                return get_user_message_history_path(self.current_user.username)
+            if history_id == INPUT_HISTORY_TCP_IP:
+                return get_user_tcp_ip_history_path(self.current_user.username)
+            if history_id == INPUT_HISTORY_TCP_PORT:
+                return get_user_tcp_port_history_path(self.current_user.username)
         base = get_data_dir()
         base.mkdir(parents=True, exist_ok=True)
-        return base / "message_history.txt"
+        return base / _INPUT_HISTORY_FALLBACK_FILENAMES[history_id]
 
-    def _reset_message_history_state(self) -> None:
-        self._message_history_cache = []
-        self._message_history_index = None
-        self._message_history_draft = ""
+    def _reset_input_history_state(self, history_id: str) -> None:
+        state = self._input_history_state(history_id)
+        state.cache = []
+        state.index = None
+        state.draft = ""
+        state.ignore_next_change = False
 
-    def _load_message_history(self) -> list[str]:
-        if self._message_history_cache:
-            return self._message_history_cache
+    def _reset_all_input_history_states(self) -> None:
+        for history_id in _INPUT_HISTORY_SELECTORS:
+            self._reset_input_history_state(history_id)
 
-        history_path = self._get_message_history_path()
+    def _load_input_history(self, history_id: str) -> list[str]:
+        state = self._input_history_state(history_id)
+        if state.cache:
+            return state.cache
+
+        history_path = self._get_input_history_path(history_id)
         if not history_path.exists():
             return []
 
-        messages: list[str] = []
+        values: list[str] = []
         try:
             for line in history_path.read_text(encoding="utf-8").splitlines():
                 text = line.strip()
@@ -1142,44 +1236,64 @@ class SerialHubApp(App[None]):
                     continue
                 if text.startswith("[") and "] " in text:
                     _, _, text = text.partition("] ")
-                messages.append(text)
+                values.append(text)
         except Exception:
             return []
 
-        self._message_history_cache = messages
-        return messages
+        state.cache = values
+        return values
 
-    def _set_tx_input_value(self, value: str) -> None:
-        tx_input = self._query_ui("#tx-input", Input)
-        self._ignore_next_tx_input_change = True
-        tx_input.value = value
-        tx_input.cursor_position = len(value)
+    def _set_history_input_value(self, history_id: str, value: str) -> None:
+        input_widget = self._query_ui(self._input_selector_for_history(history_id), Input)
+        state = self._input_history_state(history_id)
+        state.ignore_next_change = True
+        input_widget.value = value
+        input_widget.cursor_position = len(value)
 
-    def _navigate_message_history(self, direction: int) -> None:
-        tx_input = self._query_ui("#tx-input", Input)
-        history = self._load_message_history()
+    def _navigate_input_history(self, history_id: str, direction: int) -> None:
+        input_widget = self._query_ui(self._input_selector_for_history(history_id), Input)
+        history = self._load_input_history(history_id)
         if not history:
             return
 
-        if self._message_history_index is None:
+        state = self._input_history_state(history_id)
+        if state.index is None:
             if direction > 0:
                 return
-            self._message_history_draft = tx_input.value
-            self._message_history_index = len(history) - 1
-            self._set_tx_input_value(history[self._message_history_index])
+            state.draft = input_widget.value
+            state.index = len(history) - 1
+            self._set_history_input_value(history_id, history[state.index])
             return
 
-        next_index = self._message_history_index + direction
+        next_index = state.index + direction
         if next_index < 0:
             next_index = 0
 
         if next_index >= len(history):
-            self._message_history_index = None
-            self._set_tx_input_value(self._message_history_draft)
+            state.index = None
+            self._set_history_input_value(history_id, state.draft)
             return
 
-        self._message_history_index = next_index
-        self._set_tx_input_value(history[self._message_history_index])
+        state.index = next_index
+        self._set_history_input_value(history_id, history[state.index])
+
+    def _save_to_message_history(self, message: str) -> None:
+        self._save_to_input_history(INPUT_HISTORY_MESSAGE, message)
+
+    def _get_message_history_path(self) -> Path:
+        return self._get_input_history_path(INPUT_HISTORY_MESSAGE)
+
+    def _reset_message_history_state(self) -> None:
+        self._reset_input_history_state(INPUT_HISTORY_MESSAGE)
+
+    def _load_message_history(self) -> list[str]:
+        return self._load_input_history(INPUT_HISTORY_MESSAGE)
+
+    def _set_tx_input_value(self, value: str) -> None:
+        self._set_history_input_value(INPUT_HISTORY_MESSAGE, value)
+
+    def _navigate_message_history(self, direction: int) -> None:
+        self._navigate_input_history(INPUT_HISTORY_MESSAGE, direction)
 
     def _toggle_logging_for_active_session(self) -> None:
         session = self._get_active_session()

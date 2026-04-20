@@ -251,6 +251,11 @@ TabPane {
     margin-bottom: 1;
 }
 
+#clear-tcp-inputs {
+    width: 1fr;
+    margin-bottom: 1;
+}
+
 .hint {
     color: $accent;
     margin-bottom: 1;

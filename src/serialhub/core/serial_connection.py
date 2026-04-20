@@ -15,8 +15,22 @@ _BYTESIZE_MAP = {
     8: serial.EIGHTBITS,
 }
 
+# _MAX_COALESCED_READ
+# The hard size cap for one received chunk. 
+# The loop keeps appending bytes until the chunk reaches _MAX_COALESCED_READ bytes, 
+# then it stops and emits that RX event. 
 _MAX_COALESCED_READ = 4096
+
+# _MAX_COALESCE_SECONDS
+# After the first bytes are read, the code sets a fixed deadline: now + _MAX_COALESCE_SECONDS. 
+# It will keep trying to merge more bytes into the same chunk until that deadline, 
+# the _MAX_COALESCED_READ-byte cap, or the port goes idle.
 _MAX_COALESCE_SECONDS = 0.2
+
+# _MIN_IDLE_GAP_SECONDS
+# This feeds _burst_idle_gap(), which returns:
+# max(_MIN_IDLE_GAP_SECONDS, (bits_per_char / baudrate) * 2)
+# So it is the minimum “wait a bit and see if more bytes arrive” delay between checks.
 _MIN_IDLE_GAP_SECONDS = 0.002
 
 

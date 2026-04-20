@@ -1,6 +1,8 @@
+import asyncio
 import socketserver
 import threading
 import time
+from types import SimpleNamespace
 
 from serialhub.core.models import TcpConfig
 from serialhub.core.tcp_connection import TcpConnection
@@ -51,3 +53,33 @@ def test_tcp_connection_sends_and_receives_payload() -> None:
 
     assert conn.is_open is False
     assert any(event.direction == "INFO" and event.text == "Connection closed" for event in events)
+
+
+class SlowClosingWriter:
+    def __init__(self) -> None:
+        self.closed = False
+        self.aborted = False
+        self.transport = SimpleNamespace(abort=self._abort)
+
+    def close(self) -> None:
+        self.closed = True
+
+    async def wait_closed(self) -> None:
+        await asyncio.sleep(1.0)
+
+    def _abort(self) -> None:
+        self.aborted = True
+
+
+def test_tcp_connection_aborts_slow_writer_shutdown() -> None:
+    config = TcpConfig(host="127.0.0.1", port=4059, timeout=5.0)
+    conn = TcpConnection(device_id=config.device_id, config=config, event_callback=lambda event: None)
+    writer = SlowClosingWriter()
+
+    started = time.perf_counter()
+    asyncio.run(conn._close_writer_async(writer))
+    elapsed = time.perf_counter() - started
+
+    assert writer.closed is True
+    assert writer.aborted is True
+    assert elapsed < 0.75

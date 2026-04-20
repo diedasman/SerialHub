@@ -4,7 +4,13 @@ from types import SimpleNamespace
 from textual.widgets import Button, Input, Select, TabbedContent, TextArea
 
 from serialhub.app import ScriptEditorScreen, SerialHubApp
+from serialhub.config import ENV_DATA_DIR
 from serialhub.core.models import DeviceInfo, SerialEvent
+from serialhub.user_profiles import (
+    create_user_profile,
+    get_user_tcp_ip_history_path,
+    get_user_tcp_port_history_path,
+)
 
 
 class FakeDeviceManager:
@@ -275,6 +281,53 @@ def test_tcp_tab_connects_workspace_from_ip_and_port() -> None:
             assert str(app.query_one("#workspace-selection").render()) == (
                 "Active workspace: 192.168.0.10:4059 (connected)"
             )
+
+    asyncio.run(scenario())
+
+
+def test_tcp_connect_persists_user_ip_and_port_history(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
+    profile = create_user_profile("alice")
+
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False, startup_user=profile)
+        app.device_manager = FakeDeviceManager()
+
+        async with app.run_test() as pilot:
+            connection_tabs = app.query_one("#connection-tabs", TabbedContent)
+            connection_tabs.active = "connection-tcp"
+            app.query_one("#ip-input", Input).value = "192.168.0.10"
+            app.query_one("#port-input", Input).value = "4059"
+            await pilot.pause()
+
+            await pilot.click("#connect-btn")
+            await pilot.pause()
+
+            ip_history = get_user_tcp_ip_history_path("alice").read_text(encoding="utf-8")
+            port_history = get_user_tcp_port_history_path("alice").read_text(encoding="utf-8")
+            assert "192.168.0.10" in ip_history
+            assert "4059" in port_history
+
+    asyncio.run(scenario())
+
+
+def test_tcp_clear_button_resets_ip_and_port_inputs() -> None:
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False)
+        app.device_manager = FakeDeviceManager()
+
+        async with app.run_test() as pilot:
+            connection_tabs = app.query_one("#connection-tabs", TabbedContent)
+            connection_tabs.active = "connection-tcp"
+            app.query_one("#ip-input", Input).value = "192.168.0.10"
+            app.query_one("#port-input", Input).value = "4059"
+            await pilot.pause()
+
+            app.query_one("#clear-tcp-inputs", Button).press()
+            await pilot.pause()
+
+            assert app.query_one("#ip-input", Input).value == ""
+            assert app.query_one("#port-input", Input).value == ""
 
     asyncio.run(scenario())
 

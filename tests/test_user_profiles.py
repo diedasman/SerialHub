@@ -11,6 +11,8 @@ from serialhub.user_profiles import (
     get_user_command_config_path,
     get_user_message_history_path,
     get_user_profile_path,
+    get_user_tcp_ip_history_path,
+    get_user_tcp_port_history_path,
     load_command_configs,
     load_user_profile,
     set_remembered_username,
@@ -164,5 +166,68 @@ def test_message_input_history_navigation_uses_user_history(monkeypatch, tmp_pat
             await pilot.press("down")
             await pilot.pause()
             assert tx_input.value == "draft"
+
+    asyncio.run(scenario())
+
+
+def test_tcp_input_history_navigation_uses_user_history(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
+    profile = create_user_profile("alice")
+    get_user_tcp_ip_history_path("alice").write_text(
+        "[2026-04-19 10:00:00] 10.0.0.1\r\n[2026-04-19 10:05:00] 10.0.0.2\r\n",
+        encoding="utf-8",
+    )
+    get_user_tcp_port_history_path("alice").write_text(
+        "[2026-04-19 10:00:00] 4001\r\n[2026-04-19 10:05:00] 4059\r\n",
+        encoding="utf-8",
+    )
+
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False, startup_user=profile)
+
+        async with app.run_test() as pilot:
+            app.query_one("#connection-tabs").active = "connection-tcp"
+
+            ip_input = app.query_one("#ip-input", Input)
+            ip_input.focus()
+            ip_input.value = "draft-host"
+            await pilot.pause()
+
+            await pilot.press("up")
+            await pilot.pause()
+            assert ip_input.value == "10.0.0.2"
+
+            await pilot.press("up")
+            await pilot.pause()
+            assert ip_input.value == "10.0.0.1"
+
+            await pilot.press("down")
+            await pilot.pause()
+            assert ip_input.value == "10.0.0.2"
+
+            await pilot.press("down")
+            await pilot.pause()
+            assert ip_input.value == "draft-host"
+
+            port_input = app.query_one("#port-input", Input)
+            port_input.focus()
+            port_input.value = "9999"
+            await pilot.pause()
+
+            await pilot.press("up")
+            await pilot.pause()
+            assert port_input.value == "4059"
+
+            await pilot.press("up")
+            await pilot.pause()
+            assert port_input.value == "4001"
+
+            await pilot.press("down")
+            await pilot.pause()
+            assert port_input.value == "4059"
+
+            await pilot.press("down")
+            await pilot.pause()
+            assert port_input.value == "9999"
 
     asyncio.run(scenario())

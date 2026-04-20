@@ -13,7 +13,7 @@ Wave ESP32-S3 1.47inch Display Dev Board The Wave ESP32-S3 1.47-Inch Display Dev
 * Processor: Xtensa 32-bit LX7 dual-core, 240MHz 
 * Wireless: 2.4GHz Wi-Fi (802.11 b/g/n), Bluetooth 5 (BLE) 
 * Memory: 512KB SRAM, 384KB ROM, 16MB Flash, 8MB PSRAM 
-* Display: 1.47-inch TFT LCD, 172×320 resolution, 262K colours 
+* Display: 1.47-inch OLED, 172×320 resolution, 262K colours 
 * Controller: ST7789 display controller 
 * Interfaces: USB Type-A, TF card slot, GPIO pins 
 * Power: Flexible clock and multiple power modes for efficiency 
@@ -29,7 +29,7 @@ Firmware is to be further developed by Codex.
 
 ### Short term: 
 
-Implement modes for device operation; Basic serial, DLMS meter simulation, TCP, etc. Only implemnt basic serial mode and DLMS as placeholder mode. RGB LED is to change color with each mode. The integrated touch display should be used to provide the user with info and also read touch input to toggle mode. Two buttons should be present on the display; start/stop serial stream and mode toggle/cycle.
+Implement modes for device operation; Basic serial, DLMS meter simulation, TCP, etc. Only implemnt basic serial mode and DLMS as placeholder mode. RGB LED is to change color with each mode. Two buttons should be present on the display; start/stop serial stream and mode toggle/cycle.
 
 ### Long term: 
 

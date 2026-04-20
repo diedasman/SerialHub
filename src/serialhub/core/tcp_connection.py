@@ -7,6 +7,9 @@ from collections.abc import Callable
 
 from serialhub.core.models import SerialEvent, TcpConfig
 
+_CLOSE_WAIT_TIMEOUT_SECONDS = 0.25
+_THREAD_JOIN_TIMEOUT_SECONDS = 0.5
+
 
 class TcpConnection:
     def __init__(
@@ -67,6 +70,7 @@ class TcpConnection:
             loop = self._loop
             main_task = self._main_task
             thread = self._thread
+            self._is_open = False
 
         self._stop_event.set()
         self._opened_event.set()
@@ -76,10 +80,12 @@ class TcpConnection:
                 loop.call_soon_threadsafe(main_task.cancel)
             with contextlib.suppress(Exception):
                 future = asyncio.run_coroutine_threadsafe(self._close_stream_async(), loop)
-                future.result(timeout=self.config.timeout + 1.0)
+                future.result(timeout=_CLOSE_WAIT_TIMEOUT_SECONDS + 0.1)
+            with contextlib.suppress(Exception):
+                loop.call_soon_threadsafe(self._abort_writer)
 
         if thread and thread.is_alive() and thread is not threading.current_thread():
-            thread.join(timeout=self.config.timeout + 1.0)
+            thread.join(timeout=_THREAD_JOIN_TIMEOUT_SECONDS)
 
     def send(self, data: bytes) -> int:
         if not data:
@@ -189,11 +195,31 @@ class TcpConnection:
     async def _close_stream_async(self) -> None:
         with self._lock:
             writer = self._writer
+        await self._close_writer_async(writer)
+
+    def _abort_writer(self, writer: asyncio.StreamWriter | None = None) -> None:
+        target = writer
+        if target is None:
+            with self._lock:
+                target = self._writer
+        if target is None:
+            return
+        transport = getattr(target, "transport", None)
+        if transport is None:
+            return
+        with contextlib.suppress(Exception):
+            transport.abort()
+
+    async def _close_writer_async(self, writer: asyncio.StreamWriter | None) -> None:
         if writer is None:
             return
         writer.close()
-        with contextlib.suppress(Exception):
-            await writer.wait_closed()
+        try:
+            await asyncio.wait_for(writer.wait_closed(), timeout=_CLOSE_WAIT_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError:
+            self._abort_writer(writer)
+        except Exception:
+            self._abort_writer(writer)
 
     async def _cleanup_async(self, *, opened: bool) -> None:
         with self._lock:
@@ -202,10 +228,7 @@ class TcpConnection:
             self._writer = None
             self._is_open = False
 
-        if writer is not None:
-            writer.close()
-            with contextlib.suppress(Exception):
-                await writer.wait_closed()
+        await self._close_writer_async(writer)
 
         if opened and not self._close_reported:
             self._close_reported = True

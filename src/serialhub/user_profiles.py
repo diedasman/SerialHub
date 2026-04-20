@@ -63,6 +63,14 @@ def get_user_message_history_path(username: str) -> Path:
     return get_user_dir(username) / "message_history.txt"
 
 
+def get_user_tcp_ip_history_path(username: str) -> Path:
+    return get_user_dir(username) / "tcp_ip_history.txt"
+
+
+def get_user_tcp_port_history_path(username: str) -> Path:
+    return get_user_dir(username) / "tcp_port_history.txt"
+
+
 def get_user_default_logs_dir(username: str) -> Path:
     path = get_user_dir(username) / "logs"
     path.mkdir(parents=True, exist_ok=True)

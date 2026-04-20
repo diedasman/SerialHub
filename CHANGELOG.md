@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - 2026-04-20
+
+### Added
+
+- Added per-user TCP IP and TCP port history files with up/down recall in the connection form.
+- Added a `Clear` button under the TCP port field to reset the TCP connection details quickly.
+- Added regression coverage for TCP input history recall, persisted TCP history files, and the TCP clear action.
+
+### Fixed
+
+- Fixed delayed TCP disconnect UI refreshes by bounding socket shutdown waits and aborting stalled writer closes.
+
 ## [Unreleased] - 2026-04-19
 
 ### Added
