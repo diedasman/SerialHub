@@ -2,6 +2,8 @@
 
 All notable changes to this project will be documented in this file.
 
+---
+
 ## [Unreleased] - 2026-04-20
 
 ### Added
