@@ -1,6 +1,6 @@
 # SerialHub
 
-SerialHub is a cross-platform serial tool with two local launch modes: the native Textual terminal UI and the same Textual app served in a browser from your machine. It is focused on practical serial and TCP workflows, local user profiles, persistent per-device workspaces, automation scripts, and per-device logging.
+SerialHub is a cross-platform serial tool with two local launch modes: the native Textual terminal UI and the same Textual app served in a browser from your machine. It is focused on practical serial and TCP workflows, local user profiles, persistent per-device workspaces, user-defined command configs, and per-device logging.
 
 ```
                                                                                                     
@@ -20,7 +20,7 @@ Right now the app is focused on a raw serial workflow:
 - Sign in with a local SerialHub user profile and optional remember-me startup
 - Create a dedicated workspace tab for each connected serial device
 - Preserve disconnected device tabs and captured stream history until the user closes them
-- Open a dedicated script editor screen without losing the main workspace state
+- Open a dedicated config editor screen for user command JSON files without losing the main workspace state
 - Trigger user-defined command buttons from per-user JSON config files
 - Log sessions per device with timestamp and data stream
 
@@ -62,10 +62,6 @@ Right now the app is focused on a raw serial workflow:
 - Workspace tabs stay available after disconnect until manually closed
 - Closing a live workspace tab also disconnects the device
 - Textual browser mode via `textual-serve` with automatic browser launch
-- Dedicated script editor screen with:
-  - `on_message`
-  - `on_pattern`
-  - `send`, `sleep`, `wait_for`, `log`
 - Per-device start/stop logging to `.txt`
 - Log destination input accepts either:
   - an existing folder path, which generates `<device-id>-YYYYMMDD-HHMMSS.txt`
@@ -74,8 +70,9 @@ Right now the app is focused on a raw serial workflow:
 - Right-side `Functions` panel with:
   - command-config dropdown sourced from the active user's `COMMAND_CONFIGS`
   - dynamically generated buttons from nested `COMMANDS` JSON objects
+  - a `CONFIG EDITOR` button for browsing, building, and previewing the active user's command JSON files
 - Timestamp display toggle via checkbox
-- Keyboard shortcuts for message focus, connect/disconnect, logging toggle, script editor, and theme toggle
+- Keyboard shortcuts for message focus, connect/disconnect, logging toggle, logout, and theme toggle
 - Built-in dark and light themes
 
 ## Requirements
@@ -278,29 +275,15 @@ Browser mode exposes the same Textual workflow through the browser by serving `S
 6. Paste a log folder or full `.txt` file path into `Log filepath` when you want logs written outside the app data folder.
 7. Use `Start Logging` / `Stop Logging` for the active workspace.
 8. Pick a command config from the `Functions` panel and press a generated button to send its payload to the active device.
-9. Open `Script Editor` when you want to automate the active device.
+9. Open `CONFIG EDITOR` when you want to browse a config file, build command buttons from labeled inputs, or preview the generated JSON.
 
 ### CLI Keyboard Shortcuts
 
 - `M`: focus the TX message input field
 - `D`: connect/disconnect the currently selected device
 - `L`: start/stop logging for the active device session
-- `Ctrl+E`: open or close the script editor screen
+- `Ctrl+Q`: log out of the current user profile
 - `Ctrl+T`: toggle between dark and light themes
-
-### Scripting
-
-- Open the dedicated script editor screen to automate traffic without losing the main workspace.
-- Click `Run Script` to start and `Stop Script` to stop for the active device.
-- Click `Close`, press `Esc`, or press `Ctrl+E` to leave the editor and return to the main screen.
-- Supported helper functions in script scope:
-  - `send(...)`
-  - `sleep(...)`
-  - `wait_for(...)`
-  - `log(...)`
-  - `on_message`
-  - `on_pattern`
-  - `stop_requested()`
 
 ## Generated Output Structure
 
@@ -311,8 +294,9 @@ SerialHub now keeps runtime user files under the local application-data director
   users/
     alice/
       alice.json
-      alice_cmds.json
-      blank.json
+      configs/
+        alice_cmds.json
+        blank.json
       logs/
         COM3-20260418-210000.txt
       message_history.txt
@@ -329,7 +313,7 @@ SerialHub stores local metadata and user content in its data directory:
 
 - `users/<username>/<username>.json`
   - the active user's profile metadata (`THEME`, `LOG_FOLDER`, `COMMAND_CONFIGS`)
-- `users/<username>/*.json`
+- `users/<username>/configs/*.json`
   - command config files referenced by `COMMAND_CONFIGS`
 - `users/<username>/logs/*.txt`
   - fallback per-device communication logs when no external log folder is supplied

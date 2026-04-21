@@ -22,6 +22,41 @@ def _write_json(path: Path, payload: dict[str, object]) -> None:
     path.write_text(json.dumps(payload, indent=4) + "\n", encoding="utf-8")
 
 
+def escape_command_value_for_editor(value: str) -> str:
+    return json.dumps(value, ensure_ascii=False)[1:-1]
+
+
+def unescape_command_value_from_editor(value: str) -> str:
+    result: list[str] = []
+    index = 0
+    while index < len(value):
+        char = value[index]
+        if char != "\\":
+            result.append(char)
+            index += 1
+            continue
+
+        if index + 1 >= len(value):
+            result.append("\\")
+            break
+
+        next_char = value[index + 1]
+        if next_char == "r":
+            result.append("\r")
+        elif next_char == "n":
+            result.append("\n")
+        elif next_char == '"':
+            result.append('"')
+        elif next_char == "\\":
+            result.append("\\")
+        else:
+            result.append("\\")
+            result.append(next_char)
+        index += 2
+
+    return "".join(result)
+
+
 def normalize_username(username: str) -> str:
     safe_name = _INVALID_PATH_CHARS.sub("_", username.strip()).strip(" .")
     if not safe_name:
@@ -55,8 +90,18 @@ def get_user_profile_path(username: str) -> Path:
     return get_user_dir(normalized) / f"{normalized}.json"
 
 
-def get_user_command_config_path(username: str, config_name: str) -> Path:
+def get_user_command_configs_dir(username: str) -> Path:
+    path = get_user_dir(username) / "configs"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _get_legacy_user_command_config_path(username: str, config_name: str) -> Path:
     return get_user_dir(username) / f"{normalize_command_config_name(config_name)}.json"
+
+
+def get_user_command_config_path(username: str, config_name: str) -> Path:
+    return get_user_command_configs_dir(username) / f"{normalize_command_config_name(config_name)}.json"
 
 
 def get_user_message_history_path(username: str) -> Path:
@@ -124,6 +169,80 @@ class CommandConfig:
     path: Path
 
 
+def _dedupe_command_config_keys(items: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        key = normalize_command_config_name(item)
+        if key in seen:
+            continue
+        result.append(key)
+        seen.add(key)
+    return result
+
+
+def load_command_config_document(path: Path) -> dict[str, object]:
+    payload = _read_json(path)
+    if not isinstance(payload, dict):
+        raise ValueError(f"Command config '{path.name}' must contain a JSON object.")
+    return payload
+
+
+def save_command_config_document(
+    profile: UserProfile,
+    config_name: str,
+    payload: dict[str, object],
+    *,
+    previous_path: Path | None = None,
+) -> Path:
+    key = normalize_command_config_name(config_name)
+    target_path = get_user_command_config_path(profile.username, key)
+
+    previous_key = None
+    if previous_path is not None:
+        previous_key = normalize_command_config_name(previous_path.stem)
+        if previous_key != key and target_path.exists():
+            raise FileExistsError(f"Command config '{key}.json' already exists.")
+
+    _write_json(target_path, payload)
+
+    if previous_path is not None and previous_path != target_path and previous_path.exists():
+        previous_path.unlink()
+
+    config_keys = _dedupe_command_config_keys(profile.command_configs)
+    if previous_key is not None and previous_key in config_keys:
+        index = config_keys.index(previous_key)
+        config_keys[index] = key
+        config_keys = _dedupe_command_config_keys(config_keys)
+    elif key not in config_keys:
+        config_keys.append(key)
+
+    profile.command_configs = config_keys
+    save_user_profile(profile)
+    return target_path
+
+
+def migrate_legacy_command_configs(username: str) -> None:
+    normalized = normalize_username(username)
+    user_dir = get_user_dir(normalized)
+    configs_dir = get_user_command_configs_dir(normalized)
+    profile_path = get_user_profile_path(normalized)
+
+    for path in user_dir.glob("*.json"):
+        if path == profile_path:
+            continue
+        target = configs_dir / path.name
+        if target.exists():
+            continue
+        path.replace(target)
+
+
+def list_user_command_config_files(username: str) -> list[Path]:
+    normalized = normalize_username(username)
+    migrate_legacy_command_configs(normalized)
+    return sorted(get_user_command_configs_dir(normalized).glob("*.json"))
+
+
 def save_user_profile(profile: UserProfile) -> None:
     normalized = normalize_username(profile.username)
     _write_json(
@@ -184,6 +303,7 @@ def create_user_profile(username: str) -> UserProfile:
 
 
 def load_command_configs(profile: UserProfile) -> list[CommandConfig]:
+    migrate_legacy_command_configs(profile.username)
     configs: list[CommandConfig] = []
     for item in profile.command_configs:
         key = normalize_command_config_name(item)
@@ -191,7 +311,7 @@ def load_command_configs(profile: UserProfile) -> list[CommandConfig]:
         if not path.exists():
             continue
 
-        payload = _read_json(path)
+        payload = load_command_config_document(path)
         name = str(payload.get("NAME", key)).strip() or key
         commands = payload.get("COMMANDS", {})
         if not isinstance(commands, dict):

@@ -7,15 +7,21 @@ from serialhub.app import SerialHubApp, UserLoginScreen
 from serialhub.config import ENV_DATA_DIR
 from serialhub.user_profiles import (
     create_user_profile,
+    escape_command_value_for_editor,
     get_remembered_username,
     get_user_command_config_path,
+    get_user_command_configs_dir,
+    get_user_dir,
     get_user_message_history_path,
     get_user_profile_path,
     get_user_tcp_ip_history_path,
     get_user_tcp_port_history_path,
+    load_command_config_document,
     load_command_configs,
     load_user_profile,
+    save_command_config_document,
     set_remembered_username,
+    unescape_command_value_from_editor,
 )
 
 
@@ -27,6 +33,7 @@ def test_create_user_profile_creates_expected_local_files(monkeypatch, tmp_path)
     assert profile.username == "alice"
     assert profile.command_configs == ["alice_cmds", "blank"]
     assert get_user_profile_path("alice").exists()
+    assert get_user_command_configs_dir("alice").exists()
     assert get_user_command_config_path("alice", "alice_cmds").exists()
     assert get_user_command_config_path("alice", "blank").exists()
 
@@ -59,6 +66,76 @@ def test_load_command_configs_uses_profile_config_list(monkeypatch, tmp_path) ->
     configs = load_command_configs(profile)
     assert [config.key for config in configs] == ["alice_cmds", "blank"]
     assert configs[0].commands["PING"] == "ping\r\n"
+
+
+def test_load_command_configs_migrates_legacy_root_files(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
+    create_user_profile("alice")
+
+    migrated_path = get_user_command_config_path("alice", "alice_cmds")
+    legacy_path = get_user_dir("alice") / "alice_cmds.json"
+    legacy_path.write_text(
+        json.dumps(
+            {
+                "NAME": "LEGACY",
+                "COMMANDS": {
+                    "PING": "ping\r\n",
+                },
+            },
+            indent=4,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    migrated_path.unlink()
+
+    profile = load_user_profile("alice")
+    assert profile is not None
+
+    configs = load_command_configs(profile)
+    assert migrated_path.exists()
+    assert not legacy_path.exists()
+    assert configs[0].name == "LEGACY"
+
+
+def test_save_command_config_document_renames_file_and_updates_profile(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
+    profile = create_user_profile("alice")
+    original_path = get_user_command_config_path("alice", "alice_cmds")
+
+    saved_path = save_command_config_document(
+        profile,
+        "custom buttons",
+        {
+            "NAME": "custom buttons",
+            "COMMANDS": {
+                "PING": "ping\r\n",
+            },
+        },
+        previous_path=original_path,
+    )
+
+    assert saved_path == get_user_command_config_path("alice", "custom buttons")
+    assert saved_path.exists()
+    assert not original_path.exists()
+
+    reloaded_profile = load_user_profile("alice")
+    assert reloaded_profile is not None
+    assert "custom buttons" in reloaded_profile.command_configs
+    assert "alice_cmds" not in reloaded_profile.command_configs
+
+    payload = load_command_config_document(saved_path)
+    assert payload["COMMANDS"]["PING"] == "ping\r\n"
+
+
+def test_command_value_editor_escape_round_trip() -> None:
+    value = 'path\\ping + 100% & "quoted"\r\nnext'
+
+    escaped = escape_command_value_for_editor(value)
+
+    assert escaped == 'path\\\\ping + 100% & \\"quoted\\"\\r\\nnext'
+    assert unescape_command_value_from_editor(escaped) == value
+    assert unescape_command_value_from_editor("C:\\temp\\r\\n") == "C:\\temp\r\n"
 
 
 def test_remembered_username_round_trip(monkeypatch, tmp_path) -> None:

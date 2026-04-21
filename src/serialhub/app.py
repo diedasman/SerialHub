@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from importlib.resources import files
@@ -14,6 +15,7 @@ from textual.widget import Widget  # type: ignore
 from textual.widgets import (  # type: ignore
     Button,
     Checkbox,
+    DirectoryTree,
     Footer,
     Input,
     RichLog,
@@ -21,18 +23,15 @@ from textual.widgets import (  # type: ignore
     Static,
     TabbedContent,
     TabPane,
-    TextArea,
 )
 
 from serialhub.config import get_data_dir, get_logs_dir
 from serialhub.core.device_manager import DeviceManager
 from serialhub.core.models import DeviceInfo, DeviceTransport, SerialConfig, SerialEvent, TcpConfig
 from serialhub.core.session import DeviceSession
-from serialhub.defaults import DEFAULT_SCRIPT_SOURCE
 from serialhub.logging.paths import resolve_log_destination
 from serialhub.logging.session_logger import SessionLogger
 from serialhub.protocols import AsciiBinaryDecoder
-from serialhub.scripting.engine import ScriptEngine
 from serialhub.theme import (
     APP_THEMES,
     DEFAULT_THEME_MODE,
@@ -44,18 +43,22 @@ from serialhub.user_profiles import (
     CommandConfig,
     UserProfile,
     create_user_profile,
+    escape_command_value_for_editor,
     get_remembered_username,
+    get_user_command_configs_dir,
     get_user_default_logs_dir,
     get_user_message_history_path,
     get_user_tcp_ip_history_path,
     get_user_tcp_port_history_path,
+    load_command_config_document,
     load_command_configs,
     load_user_profile,
     normalize_username,
+    save_command_config_document,
     save_user_profile,
     set_remembered_username,
+    unescape_command_value_from_editor,
 )
-
 
 INPUT_HISTORY_MESSAGE = "message"
 INPUT_HISTORY_TCP_IP = "tcp-ip"
@@ -72,6 +75,9 @@ _INPUT_HISTORY_FALLBACK_FILENAMES = {
     INPUT_HISTORY_TCP_IP: "tcp_ip_history.txt",
     INPUT_HISTORY_TCP_PORT: "tcp_port_history.txt",
 }
+
+_CONFIG_COMMAND_SEPARATOR = " / "
+_NEW_CONFIG_DOCUMENT_KEY = "__new__"
 
 
 def load_ascii_logo() -> str:
@@ -96,6 +102,27 @@ class InputHistoryState:
     ignore_next_change: bool = False
 
 
+@dataclass(slots=True)
+class ConfigCommandDraft:
+    label: str = ""
+    value: str = ""
+
+
+@dataclass(slots=True)
+class ConfigEditorDocument:
+    name: str = ""
+    commands: list[ConfigCommandDraft] = field(default_factory=list)
+    path: Path | None = None
+
+
+@dataclass(slots=True)
+class ConfigCommandRowWidgets:
+    row: Horizontal
+    label_input: Input
+    value_input: Input
+    delete_button: Button
+
+
 class HistoryInput(Input):
     BINDINGS = [
         *Input.BINDINGS,
@@ -116,6 +143,11 @@ class HistoryInput(Input):
         app = getattr(self, "app", None)
         if app is not None and hasattr(app, "_navigate_input_history"):
             app._navigate_input_history(self.history_id, 1)
+
+
+class CommandConfigDirectoryTree(DirectoryTree):
+    def filter_paths(self, paths: list[Path]) -> list[Path]:
+        return [path for path in paths if path.is_dir() or path.suffix.lower() == ".json"]
 
 
 class UserLoginScreen(ModalScreen[None]):
@@ -197,63 +229,468 @@ class UserLoginScreen(ModalScreen[None]):
         self.app.handle_login_action(action, username, remember_me)
 
 
-class ScriptEditorScreen(Screen[None]):
+class ConfigEditorScreen(Screen[None]):
     BINDINGS = [
-        Binding("ctrl+e", "close_script_editor", "Close Editor", priority=True),
-        Binding("escape", "close_script_editor", "Close Editor"),
+        Binding("escape", "close_config_editor", "Close Editor"),
+        Binding("ctrl+s", "save_config_document", "Save File"),
     ]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.selected_path: Path | None = None
+        self._active_document_key: str | None = None
+        self._document_drafts: dict[str, ConfigEditorDocument] = {}
+        self._command_row_ids: list[int] = []
+        self._active_command_row_ids: list[int] = []
+        self._command_row_widgets: dict[int, ConfigCommandRowWidgets] = {}
+        self._command_row_counter = 0
+        self._rendering_form = False
 
     def compose(self) -> ComposeResult:
         app = self.app
-        active_device = app.active_device_id or "No workspace selected"
+        config_root = get_user_command_configs_dir(app.current_user.username)
 
-        with Horizontal(id="script-editor-layout"):
+        with Horizontal(id="config-editor-layout"):
+            with Vertical(id="config-file-browser", classes="panel"):
+                with Horizontal(id="config-browser-actions"):
+                    yield Button("New", id="config-new", variant="success")
+                yield CommandConfigDirectoryTree(config_root, id="config-file-tree")
 
-            with Vertical(id="script-list", classes="panel"):
-                yield Button("Close", id="script-list-close", variant="primary")
+            with Vertical(id="config-command-editor", classes="panel"):
+                with Vertical(id="config-editor-form"):
+                    with VerticalScroll(id="config-editor-scroll"):
+                        with Horizontal(id="config-name-row"):
+                            yield Static("NAME", classes="config-input-label")
+                            yield Input(placeholder="config file name", id="config-name-input")
+                            yield Button("Add Command", id="config-add-command", variant="primary")
+                        yield Vertical(id="config-command-rows")
+                    with Horizontal(id="config-editor-actions"):
+                        yield Button("Save", id="config-save", variant="success", disabled=True)
+                        yield Button("Close", id="config-close", variant="error")
 
-            with Vertical(id="script-screen", classes="panel"):
-                with Horizontal(id="script-screen-toolbar"):
-                    # yield Static("SCRIPT EDITOR", classes="section-title")
-                    yield Static(f"Active device: {active_device}", id="script-active-device", classes="hint")
-                    yield Button("Run Script", id="script-start")
-                    yield Button("Stop Script", id="script-stop")
-                    yield Button("Close", id="script-close", variant="primary")
+            with Vertical(id="config-file-preview", classes="panel"):
+                with VerticalScroll(id="config-preview-scroll"):
+                    yield Static("", id="config-editor-preview", markup=False)
 
-                yield TextArea(
-                    app.script_source,
-                    id="script-editor",
-                    language="python",
-                    show_line_numbers=True,
-                )
-
-        yield Footer(id="script-editor-footer")
+        yield Footer(id="config-editor-footer")
 
     def on_mount(self) -> None:
-        self.query_one("#script-editor", TextArea).focus()
         self._set_panel_border_titles()
+        self.query_one("#config-file-tree", CommandConfigDirectoryTree).focus()
+        self._render_empty_editor()
 
     def _set_panel_border_titles(self) -> None:
-        self.query_one("#script-list", Vertical).border_title = " FILE BROWSER "
-        self.query_one("#script-screen", Vertical).border_title = " EDITOR "
+        self.query_one("#config-file-browser", Vertical).border_title = " COMMAND FILE BROWSER "
+        self.query_one("#config-command-editor", Vertical).border_title = " COMMAND BUILDER "
+        self.query_one("#config-file-preview", Vertical).border_title = " FILE EDITOR PREVIEW "
 
-    def action_close_script_editor(self) -> None:
+    def action_close_config_editor(self) -> None:
         self.app.pop_screen()
+        self.app.call_after_refresh(self.app._refresh_command_configs)
+
+    def action_save_config_document(self) -> None:
+        self._save_active_document()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id or ""
-        if button_id == "script-start":
-            self.app._start_script_for_active_device()
+        if button_id == "config-new":
+            self._open_new_document()
             return
-        if button_id == "script-stop":
-            self.app._stop_script_for_active_device()
+        if button_id == "config-add-command":
+            self._add_command_row()
             return
-        if button_id in {"script-list-close", "script-close"}:
-            self.app.pop_screen()
+        if button_id == "config-save":
+            self._save_active_document()
+            return
+        if button_id == "config-close":
+            self.action_close_config_editor()
+            return
+        if button_id.startswith("config-command-delete-"):
+            try:
+                row_id = int(button_id.rsplit("-", 1)[-1])
+            except ValueError:
+                return
+            self._delete_command_row(row_id)
 
-    def on_text_area_changed(self, event: TextArea.Changed) -> None:
-        if event.text_area.id == "script-editor":
-            self.app.script_source = event.text_area.text
+    def on_tree_node_highlighted(self, event: DirectoryTree.NodeHighlighted) -> None:
+        if event.control.id != "config-file-tree":
+            return
+        path = getattr(event.node.data, "path", None)
+        if not isinstance(path, Path) or path.suffix.lower() != ".json":
+            self._store_active_document_draft()
+            self._render_empty_editor()
+            return
+        self._display_document_for_path(path)
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        input_id = event.input.id or ""
+        if self._rendering_form:
+            return
+        if input_id == "config-name-input" or input_id.startswith("config-command-"):
+            self._update_active_document_from_form()
+
+    def _open_new_document(self) -> None:
+        self._store_active_document_draft()
+        document = self._document_drafts.get(
+            _NEW_CONFIG_DOCUMENT_KEY,
+            ConfigEditorDocument(commands=[ConfigCommandDraft()]),
+        )
+        if not document.commands:
+            document.commands = [ConfigCommandDraft()]
+        document.path = None
+        self._document_drafts[_NEW_CONFIG_DOCUMENT_KEY] = document
+        self.selected_path = None
+        self._active_document_key = _NEW_CONFIG_DOCUMENT_KEY
+        self._render_document(document, focus_target="#config-name-input")
+
+    def _display_document_for_path(self, path: Path) -> None:
+        if path.suffix.lower() != ".json":
+            self._render_empty_editor()
+            return
+
+        key = self._document_key_for_path(path)
+        if self.selected_path == path and self._active_document_key == key:
+            return
+
+        self._store_active_document_draft()
+        document = self._document_drafts.get(key)
+        if document is None:
+            try:
+                payload = load_command_config_document(path)
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                self.app.notify(f"Unable to load {path.name}: {exc}", severity="error")
+                return
+            document = self._document_from_payload(path, payload)
+            self._document_drafts[key] = document
+
+        self.selected_path = path
+        self._active_document_key = key
+        self._render_document(document)
+
+    def _document_key_for_path(self, path: Path) -> str:
+        return str(path.resolve())
+
+    def _document_from_payload(self, path: Path, payload: dict[str, object]) -> ConfigEditorDocument:
+        commands = payload.get("COMMANDS", {})
+        if not isinstance(commands, dict):
+            raise ValueError(f"Command config '{path.name}' must contain an object under COMMANDS.")
+        entries = self._flatten_command_entries(commands)
+        if not entries:
+            entries = [ConfigCommandDraft()]
+        return ConfigEditorDocument(
+            name=str(payload.get("NAME", path.stem)).strip() or path.stem,
+            commands=entries,
+            path=path,
+        )
+
+    def _flatten_command_entries(
+        self,
+        commands: dict[str, object],
+        *,
+        path: tuple[str, ...] = (),
+    ) -> list[ConfigCommandDraft]:
+        entries: list[ConfigCommandDraft] = []
+        for key, value in commands.items():
+            if isinstance(value, dict):
+                entries.extend(self._flatten_command_entries(value, path=path + (key,)))
+                continue
+            entries.append(
+                ConfigCommandDraft(
+                    label=_CONFIG_COMMAND_SEPARATOR.join(path + (key,)),
+                    value=escape_command_value_for_editor(str(value)),
+                )
+            )
+        return entries
+
+    def _render_empty_editor(self) -> None:
+        self._active_document_key = None
+        self.selected_path = None
+        self._active_command_row_ids = []
+        self.query_one("#config-save", Button).disabled = True
+        self.query_one("#config-editor-preview", Static).update("")
+        self._set_editor_input_value(self.query_one("#config-name-input", Input), "")
+        for row_id, widgets in self._command_row_widgets.items():
+            self._set_editor_input_value(widgets.label_input, "")
+            self._set_editor_input_value(widgets.value_input, "")
+            widgets.row.display = False
+        self.query_one("#config-editor-form", Vertical).display = False
+
+    def _render_document(self, document: ConfigEditorDocument, *, focus_target: str | None = None) -> None:
+        self._rendering_form = True
+        self._populate_document_body(document)
+        self._rendering_form = False
+        if focus_target:
+            self.call_after_refresh(self._focus_input, focus_target)
+
+    def _populate_document_body(self, document: ConfigEditorDocument) -> None:
+        entries = document.commands or [ConfigCommandDraft()]
+        self._ensure_command_rows(len(entries))
+        self._active_command_row_ids = self._command_row_ids[: len(entries)]
+        self.query_one("#config-editor-form", Vertical).display = True
+        self._set_editor_input_value(self.query_one("#config-name-input", Input), document.name)
+
+        for index, row_id in enumerate(self._command_row_ids):
+            widgets = self._command_row_widgets[row_id]
+            if index < len(entries):
+                entry = entries[index]
+                self._set_editor_input_value(widgets.label_input, entry.label)
+                self._set_editor_input_value(widgets.value_input, entry.value)
+                widgets.row.display = True
+                continue
+            self._set_editor_input_value(widgets.label_input, "")
+            self._set_editor_input_value(widgets.value_input, "")
+            widgets.row.display = False
+
+        self.query_one("#config-save", Button).disabled = False
+        self._refresh_preview(document)
+
+    def _set_editor_input_value(self, input_widget: Input, value: str) -> None:
+        input_widget.value = value
+        input_widget.view_position = 0
+        input_widget.cursor_position = 0
+
+    def _ensure_command_rows(self, count: int) -> None:
+        container = self.query_one("#config-command-rows", Vertical)
+        while len(self._command_row_ids) < count:
+            self._mount_command_row(container)
+
+    def _mount_command_row(self, container: Vertical) -> None:
+        self._command_row_counter += 1
+        row_id = self._command_row_counter
+        label_input = Input(
+            placeholder="button label or nested path",
+            id=f"config-command-label-{row_id}",
+            classes="config-command-input config-command-label-input",
+        )
+        value_input = Input(
+            placeholder="string sent over the connection",
+            id=f"config-command-value-{row_id}",
+            classes="config-command-input config-command-value-input",
+        )
+        delete_button = Button(
+            " X ",
+            id=f"config-command-delete-{row_id}",
+            variant="warning",
+            classes="config-command-delete",
+        )
+        row = Horizontal(
+            Static("LABEL", classes="config-input-label"),
+            label_input,
+            Static("STRING", classes="config-input-label"),
+            value_input,
+            delete_button,
+            id=f"config-command-row-{row_id}",
+            classes="config-command-row",
+        )
+        row.display = False
+        self._command_row_ids.append(row_id)
+        self._command_row_widgets[row_id] = ConfigCommandRowWidgets(
+            row=row,
+            label_input=label_input,
+            value_input=value_input,
+            delete_button=delete_button,
+        )
+        container.mount(row)
+
+    def _add_command_row(self) -> None:
+        document = self._document_from_form()
+        if document is None:
+            self.app.notify("Press New or focus a command file first.", severity="warning")
+            return
+
+        document.commands.append(ConfigCommandDraft())
+        if self._active_document_key is not None:
+            self._document_drafts[self._active_document_key] = document
+        next_index = len(document.commands) - 1
+        focus_target = self._command_focus_selector(next_index)
+        self._render_document(document, focus_target=focus_target)
+
+    def _delete_command_row(self, row_id: int) -> None:
+        if row_id not in self._active_command_row_ids:
+            return
+
+        document = self._document_from_form()
+        if document is None:
+            return
+
+        index = self._active_command_row_ids.index(row_id)
+        if index >= len(document.commands):
+            return
+
+        document.commands.pop(index)
+        if self._active_document_key is not None:
+            self._document_drafts[self._active_document_key] = document
+
+        if not document.commands:
+            self._render_document(document, focus_target="#config-name-input")
+            return
+
+        target_index = min(index, len(document.commands) - 1)
+        self._render_document(document, focus_target=self._command_focus_selector(target_index))
+
+    def _focus_input(self, selector: str) -> None:
+        try:
+            self.query_one(selector, Input).focus()
+        except NoMatches:
+            return
+
+    def _command_focus_selector(self, index: int) -> str:
+        if index < 0 or index >= len(self._command_row_ids):
+            return "#config-name-input"
+        return f"#config-command-label-{self._command_row_ids[index]}"
+
+    def _document_from_form(self) -> ConfigEditorDocument | None:
+        try:
+            name_input = self.query_one("#config-name-input", Input)
+        except NoMatches:
+            return None
+
+        commands: list[ConfigCommandDraft] = []
+        for row_id in self._active_command_row_ids:
+            widgets = self._command_row_widgets.get(row_id)
+            if widgets is None:
+                continue
+            commands.append(
+                ConfigCommandDraft(
+                    label=widgets.label_input.value,
+                    value=widgets.value_input.value,
+                )
+            )
+
+        return ConfigEditorDocument(
+            name=name_input.value,
+            commands=commands,
+            path=self.selected_path,
+        )
+
+    def _store_active_document_draft(self) -> None:
+        if self._active_document_key is None:
+            return
+        document = self._document_from_form()
+        if document is None:
+            return
+        self._document_drafts[self._active_document_key] = document
+
+    def _update_active_document_from_form(self) -> None:
+        if self._active_document_key is None:
+            return
+        document = self._document_from_form()
+        if document is None:
+            return
+        self._document_drafts[self._active_document_key] = document
+        self._refresh_preview(document)
+
+    def _refresh_preview(self, document: ConfigEditorDocument) -> None:
+        payload, _warnings = self._build_payload(document, strict=False)
+        self.query_one("#config-editor-preview", Static).update(json.dumps(payload, indent=4) + "\n")
+
+    def _build_payload(
+        self,
+        document: ConfigEditorDocument,
+        *,
+        strict: bool,
+    ) -> tuple[dict[str, object], list[str]]:
+        payload: dict[str, object] = {
+            "NAME": document.name.strip(),
+            "COMMANDS": {},
+        }
+        commands = payload["COMMANDS"]
+        assert isinstance(commands, dict)
+
+        errors: list[str] = []
+        for index, entry in enumerate(document.commands, start=1):
+            label = entry.label.strip()
+            value = unescape_command_value_from_editor(entry.value)
+
+            if not label and not value:
+                continue
+
+            if not label or value == "":
+                errors.append(f"Command row {index} needs both LABEL and STRING.")
+                continue
+
+            parts = [part.strip() for part in label.split("/") if part.strip()]
+            if not parts:
+                errors.append(f"Command row {index} needs a valid LABEL.")
+                continue
+
+            joined_label = _CONFIG_COMMAND_SEPARATOR.join(parts)
+            try:
+                self._insert_command_value(commands, parts, value, joined_label)
+            except ValueError as exc:
+                errors.append(f"Command row {index}: {exc}")
+
+        if strict and not document.name.strip():
+            errors.insert(0, "Enter a NAME before saving.")
+
+        return payload, errors
+
+    def _insert_command_value(
+        self,
+        commands: dict[str, object],
+        parts: list[str],
+        value: str,
+        display_path: str,
+    ) -> None:
+        current = commands
+        for part in parts[:-1]:
+            existing = current.get(part)
+            if existing is None:
+                current[part] = {}
+                existing = current[part]
+            if not isinstance(existing, dict):
+                raise ValueError(f"'{part}' is already a command, so '{display_path}' cannot be nested.")
+            current = existing
+
+        leaf = parts[-1]
+        existing_leaf = current.get(leaf)
+        if isinstance(existing_leaf, dict):
+            raise ValueError(f"'{display_path}' already exists as a command group.")
+        if existing_leaf is not None:
+            raise ValueError(f"Duplicate LABEL '{display_path}'.")
+        current[leaf] = value
+
+    def _save_active_document(self) -> None:
+        if self.app.current_user is None:
+            self.app.notify("Sign in before saving command files.", severity="warning")
+            return
+
+        document = self._document_from_form()
+        if document is None:
+            self.app.notify("Press New or focus a command file first.", severity="warning")
+            return
+
+        payload, errors = self._build_payload(document, strict=True)
+        if errors:
+            self.app.notify(errors[0], severity="error")
+            return
+
+        previous_path = self.selected_path
+        try:
+            saved_path = save_command_config_document(
+                self.app.current_user,
+                document.name,
+                payload,
+                previous_path=previous_path,
+            )
+        except FileExistsError as exc:
+            self.app.notify(str(exc), severity="error")
+            return
+        except OSError as exc:
+            self.app.notify(f"Save failed: {exc}", severity="error")
+            return
+
+        saved_document = self._document_from_payload(saved_path, payload)
+        new_key = self._document_key_for_path(saved_path)
+        if self._active_document_key and self._active_document_key != new_key:
+            self._document_drafts.pop(self._active_document_key, None)
+        self._document_drafts[new_key] = saved_document
+        self.selected_path = saved_path
+        self._active_document_key = new_key
+        self._render_document(saved_document)
+        self.query_one("#config-file-tree", CommandConfigDirectoryTree).reload()
+        self.app._sync_command_config_cache()
+        self.app.notify(f"Saved {saved_path.name}")
 
 
 class SerialHubApp(App[None]):
@@ -265,7 +702,6 @@ class SerialHubApp(App[None]):
         Binding("m", "focus_message_input", "Message"),
         Binding("d", "toggle_connect_disconnect", "Dis/Connect"),
         Binding("l", "toggle_logging_shortcut", "Logging"),
-        Binding("ctrl+e", "toggle_script_editor", "Script Editor", priority=True),
         Binding("ctrl+t", "toggle_theme", "Theme"),
         Binding("ctrl+c", "quit", "Quit"),
         Binding("ctrl+q", "logout", "Logout", priority=True),
@@ -288,12 +724,10 @@ class SerialHubApp(App[None]):
         self.theme = resolve_textual_theme_name(self.theme_mode)
 
         self.device_manager = DeviceManager()
-        self.script_engine = ScriptEngine()
 
         self.discovered_devices: list[DeviceInfo] = []
         self.selected_port: str | None = None
         self.active_device_id: str | None = None
-        self.script_source = DEFAULT_SCRIPT_SOURCE
 
         self.sessions: dict[str, DeviceSession] = {}
         self._shutting_down = False
@@ -413,7 +847,9 @@ class SerialHubApp(App[None]):
 
             with Vertical(id="center-panel", classes="panel"):
                 with Horizontal(id="workspace-toolbar"):
-                    yield Static("No device workspaces open.", id="workspace-selection", classes="hint")
+                    with Vertical(id="workspace-status"):
+                        yield Static("No device workspaces open.", id="workspace-selection", classes="hint")
+                        yield Static("No user.", id="current-user-summary", classes="hint")
                     yield Button("Clear Console", id="clear-console-btn", variant="warning", disabled=True)
                     yield Button("Close Tab", id="close-active-workspace", variant="error", disabled=True)
 
@@ -452,13 +888,10 @@ class SerialHubApp(App[None]):
                     yield Checkbox("Timestamps", value=True, id="timestamp-checkbox")
                     yield Input(placeholder="Log folder or .txt path", id="log-filepath")
                     yield Button("Start Logging", id="toggle-logging")
-                    yield Button("Script Editor", id="open-script-editor")
 
             with Vertical(id="right-panel", classes="panel"):
-
-                with Horizontal(id="label-row"):
-                    # yield Static("USER DEFINED", classes="section-title")
-                    yield Static("No user.", id="current-user-summary", classes="section-title")
+                with Horizontal(id="right-panel-header"):
+                    yield Static("", id="right-panel-spacer")
                     yield Button("CONFIG EDITOR", id="config-editor-btn", variant="warning")
                 
                 yield Select([], id="command-config-select", prompt="Select command config", allow_blank=True)
@@ -516,19 +949,21 @@ class SerialHubApp(App[None]):
     def action_toggle_logging_shortcut(self) -> None:
         self._toggle_logging_for_active_session()
 
-    def action_toggle_script_editor(self) -> None:
+    def action_open_config_editor(self) -> None:
         if isinstance(self.screen, UserLoginScreen):
             return
-        if isinstance(self.screen, ScriptEditorScreen):
-            self.pop_screen()
+        if not self.current_user:
+            self.notify("Sign in to edit command files.", severity="warning")
             return
-        self.push_screen(ScriptEditorScreen())
+        if isinstance(self.screen, ConfigEditorScreen):
+            return
+        self.push_screen(ConfigEditorScreen())
 
     def action_logout(self) -> None:
         if isinstance(self.screen, UserLoginScreen):
             return
 
-        if isinstance(self.screen, ScriptEditorScreen):
+        if isinstance(self.screen, ConfigEditorScreen):
             self.pop_screen()
 
         self.current_user = None
@@ -611,8 +1046,12 @@ class SerialHubApp(App[None]):
             self._toggle_logging_for_active_session()
             return
 
-        if button_id == "open-script-editor":
-            self.action_toggle_script_editor()
+        if button_id == "config-editor-btn":
+            self.action_open_config_editor()
+            return
+
+        if button_id == "clear-console-btn":
+            self._clear_active_workspace_console()
             return
 
         if button_id == "close-active-workspace" and self.active_device_id:
@@ -680,7 +1119,6 @@ class SerialHubApp(App[None]):
 
     def on_unmount(self) -> None:
         self._shutting_down = True
-        self.script_engine.stop_all()
         for session in self.sessions.values():
             if session.logger:
                 session.logger.stop()
@@ -736,13 +1174,16 @@ class SerialHubApp(App[None]):
     def _refresh_user_dependent_ui(self) -> None:
         summary = self._query_ui("#current-user-summary", Static)
         log_input = self._query_ui("#log-filepath", Input)
+        config_button = self._query_ui("#config-editor-btn", Button)
 
         if self.current_user:
             summary.update(f"user: {self.current_user.username}")
             log_input.value = self.current_user.log_folder
+            config_button.disabled = False
         else:
             summary.update("No user.")
             log_input.value = ""
+            config_button.disabled = True
 
         self._refresh_command_configs()
 
@@ -753,8 +1194,8 @@ class SerialHubApp(App[None]):
 
         self._refreshing_command_configs = True
         try:
-            self._command_configs = {}
             if not self.current_user:
+                self._command_configs = {}
                 select.set_options([])
                 select.clear()
                 select.disabled = True
@@ -762,9 +1203,8 @@ class SerialHubApp(App[None]):
                 self._render_command_buttons(None, placeholder="Sign in to load function buttons.")
                 return
 
-            configs = load_command_configs(self.current_user)
-            self._command_configs = {config.key: config for config in configs}
-            options = [(config.name, config.key) for config in configs]
+            self._sync_command_config_cache()
+            options = [(config.name, config.key) for config in self._command_configs.values()]
             select.set_options(options)
             select.disabled = not options
 
@@ -787,6 +1227,13 @@ class SerialHubApp(App[None]):
             self._render_command_buttons(active_key)
         finally:
             self._refreshing_command_configs = False
+
+    def _sync_command_config_cache(self) -> None:
+        if not self.current_user:
+            self._command_configs = {}
+            return
+        configs = load_command_configs(self.current_user)
+        self._command_configs = {config.key: config for config in configs}
 
     def _render_command_buttons(self, config_key: str | None, placeholder: str | None = None) -> None:
         scroll = self._query_ui("#command-buttons-scroll", VerticalScroll)
@@ -1067,8 +1514,6 @@ class SerialHubApp(App[None]):
             self.notify(f"{target} is not connected.", severity="warning")
             return
 
-        self.script_engine.stop(target)
-
         session = self.sessions.get(target)
         if session and session.logger:
             session.logger.stop()
@@ -1086,8 +1531,6 @@ class SerialHubApp(App[None]):
         if self._is_device_connected(device_id):
             self._disconnect_device(device_id)
 
-        self.script_engine.stop(device_id)
-
         session = self.sessions.pop(device_id, None)
         if session and session.logger:
             session.logger.stop()
@@ -1104,6 +1547,17 @@ class SerialHubApp(App[None]):
 
         self._sync_active_device_from_workspace()
         self.notify(f"Closed workspace tab for {device_id}")
+
+    def _clear_active_workspace_console(self) -> None:
+        session = self._get_active_session()
+        if not session:
+            self.notify("No active workspace selected.", severity="warning")
+            return
+
+        session.raw_events.clear()
+        session.parsed_lines.clear()
+        self._refresh_workspace_state(session.device_id)
+        self.notify(f"Cleared console for {session.device_id}")
 
     def _send_current_input(self) -> None:
         device_id = self.active_device_id
@@ -1356,9 +1810,6 @@ class SerialHubApp(App[None]):
             session.add_parsed_line(f"{prefix}{event.direction} {ascii_result.protocol}")
             for line in ascii_result.lines:
                 session.add_parsed_line(f"  {line}")
-
-            if event.direction == "RX":
-                self.script_engine.publish_rx(event.device_id, event.payload)
         else:
             info_text = event.text or ""
             session.add_parsed_line(f"{prefix}{event.direction} {info_text}")
@@ -1382,40 +1833,6 @@ class SerialHubApp(App[None]):
 
     def _is_tx_hex_mode(self) -> bool:
         return self._query_ui("#tx-hex-checkbox", Checkbox).value
-
-    def _start_script_for_active_device(self) -> None:
-        device_id = self.active_device_id
-        if not device_id:
-            self.notify("No active device selected.", severity="warning")
-            return
-
-        if not self._is_device_connected(device_id):
-            self.notify("Connect the active device before starting a script.", severity="warning")
-            return
-
-        script = self.script_source
-        if not script.strip():
-            self.notify("Script is empty.", severity="warning")
-            return
-
-        def sender(payload: bytes) -> None:
-            self.call_from_thread(self._send_payload, device_id, payload)
-
-        def logger(message: str) -> None:
-            event = SerialEvent(device_id=device_id, port=device_id, direction="SCRIPT", text=message)
-            self.call_from_thread(self._handle_serial_event_ui, event)
-
-        self.script_engine.start(device_id, script, sender=sender, logger=logger)
-        self.notify(f"Script started for {device_id}")
-
-    def _stop_script_for_active_device(self) -> None:
-        device_id = self.active_device_id
-        if not device_id:
-            self.notify("No active device selected.", severity="warning")
-            return
-
-        self.script_engine.stop(device_id)
-        self.notify(f"Script stopped for {device_id}")
 
     def _start_logging_for_session(self, session: DeviceSession, notify: bool = True) -> bool:
         if session.logger and session.logger.is_running:
@@ -1572,14 +1989,17 @@ class SerialHubApp(App[None]):
 
     def _update_workspace_summary(self) -> None:
         summary = self._query_ui("#workspace-selection", Static)
+        clear_button = self._query_ui("#clear-console-btn", Button)
         close_button = self._query_ui("#close-active-workspace", Button)
         if not self.active_device_id:
             summary.update("No device workspaces open.")
+            clear_button.disabled = True
             close_button.disabled = True
             return
 
         state = "connected" if self._is_device_connected(self.active_device_id) else "saved"
         summary.update(f"Active workspace: {self.active_device_id} ({state})")
+        clear_button.disabled = False
         close_button.disabled = False
 
     def _remove_workspace_placeholder(self) -> None:

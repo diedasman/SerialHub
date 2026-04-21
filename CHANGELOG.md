@@ -11,18 +11,27 @@ All notable changes to this project will be documented in this file.
 - Added a packaged ASCII logo asset under `src/serialhub/assets/logo.txt`.
 - Added regression coverage for packaged logo loading and workspace placeholder content.
 - Added a `scripts/dev_setup.ps1` helper for returning to an editable Windows development environment quickly.
+- Added a user-scoped `Config Editor` screen for browsing and editing command JSON files from `users/<username>/configs/`.
+- Added a form-based command builder in the `Config Editor` for creating and editing command buttons without hand-editing JSON.
+- Added regression coverage for config-editor loading/saving, workspace console clearing, and the updated user-summary placement.
 
 ### Changed
 
 - Switched the end-user installation flow and helper scripts to a `pipx`-first setup so `serialhub` is available on the terminal `PATH` without activating a virtual environment.
+- Moved user command-config storage into a dedicated per-user `configs/` folder with legacy-file migration for existing profiles.
+- Moved the current-user summary below the workspace label and docked the `CONFIG EDITOR` button to the top-right of the functions panel.
+- Reworked the `Config Editor` into a three-panel browser, structured command editor, and JSON preview layout.
 
 ### Fixed
 
 - Fixed logo loading for non-editable installs by switching from repo-root file discovery to packaged resources.
+- Wired the `Clear Console` button so it clears the active workspace stream without closing the saved session.
 
 ### Removed
 
 - Removed the built-in external protocol decoder dependency and its remaining code, tests, and documentation references from the base application.
+- Removed the main-screen `Script Editor` entry point in favor of the scoped config-editor workflow.
+- Removed the deprecated `serialhub.scripting` package and its remaining runtime hooks.
 
 ## [Unreleased] - 2026-04-20
 

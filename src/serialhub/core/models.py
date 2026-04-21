@@ -7,7 +7,7 @@ from typing import Literal, Protocol
 
 import serial
 
-Direction = Literal["RX", "TX", "INFO", "ERROR", "SCRIPT"]
+Direction = Literal["RX", "TX", "INFO", "ERROR"]
 DeviceTransport = Literal["serial", "tcp"]
 
 PARITY_MAP = {

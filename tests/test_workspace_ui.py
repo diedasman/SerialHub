@@ -1,13 +1,15 @@
 import asyncio
+import json
 from types import SimpleNamespace
 
-from textual.widgets import Button, Input, Select, TabbedContent, TextArea
+from textual.widgets import Button, Input, Select, Static, TabbedContent
 
-from serialhub.app import ScriptEditorScreen, SerialHubApp
+from serialhub.app import ConfigEditorScreen, SerialHubApp
 from serialhub.config import ENV_DATA_DIR
 from serialhub.core.models import DeviceInfo, SerialEvent
 from serialhub.user_profiles import (
     create_user_profile,
+    get_user_command_config_path,
     get_user_tcp_ip_history_path,
     get_user_tcp_port_history_path,
 )
@@ -57,45 +59,298 @@ class EmptyDeviceManager(FakeDeviceManager):
         self.devices = []
 
 
-def test_script_editor_shortcut_opens_and_closes_screen() -> None:
+def test_config_editor_button_opens_and_closes_screen(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
+    profile = create_user_profile("alice")
+
     async def scenario() -> None:
-        app = SerialHubApp(require_login=False)
+        app = SerialHubApp(require_login=False, startup_user=profile)
         app.device_manager = FakeDeviceManager()
 
         async with app.run_test() as pilot:
-            tx_input = app.query_one("#tx-input", Input)
-            tx_input.value = "draft"
-            tx_input.cursor_position = 0
-            tx_input.focus()
             await pilot.pause()
 
-            await pilot.press("ctrl+e")
+            await pilot.click("#config-editor-btn")
             await pilot.pause()
-            assert isinstance(app.screen, ScriptEditorScreen)
+            assert isinstance(app.screen, ConfigEditorScreen)
 
-            script_editor = app.screen.query_one("#script-editor", TextArea)
-            script_editor.focus()
-            await pilot.pause()
+            preview = app.screen.query_one("#config-editor-preview", Static)
+            assert str(preview.renderable) == ""
+            assert app.screen.query_one("#config-save", Button).disabled is True
 
-            await pilot.press("ctrl+e")
+            app.screen.action_close_config_editor()
             await pilot.pause()
-            assert not isinstance(app.screen, ScriptEditorScreen)
+            assert not isinstance(app.screen, ConfigEditorScreen)
 
     asyncio.run(scenario())
 
 
-def test_workspace_updates_continue_while_script_editor_screen_is_open() -> None:
+def test_config_editor_loads_focused_file_into_structured_form(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
+    profile = create_user_profile("alice")
+    command_path = get_user_command_config_path("alice", "alice_cmds")
+    command_path.write_text(
+        json.dumps(
+            {
+                "NAME": "DEFAULTS",
+                "COMMANDS": {
+                    "PING": "ping\r\n",
+                    "SET": {
+                        "TIME": "set time + % &\r\n",
+                    },
+                },
+            },
+            indent=4,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
     async def scenario() -> None:
-        app = SerialHubApp(require_login=False)
+        app = SerialHubApp(require_login=False, startup_user=profile)
+        app.device_manager = FakeDeviceManager()
+
+        async with app.run_test() as pilot:
+            await pilot.click("#config-editor-btn")
+            await pilot.pause()
+
+            assert isinstance(app.screen, ConfigEditorScreen)
+            app.screen._display_document_for_path(command_path)
+            await pilot.pause()
+
+            assert app.screen.query_one("#config-name-input", Input).value == "DEFAULTS"
+            assert app.screen.query_one("#config-command-label-1", Input).value == "PING"
+            assert app.screen.query_one("#config-command-value-1", Input).value == "ping\\r\\n"
+            assert app.screen.query_one("#config-command-label-2", Input).value == "SET / TIME"
+            assert app.screen.query_one("#config-command-value-2", Input).value == "set time + % &\\r\\n"
+
+            preview = app.screen.query_one("#config-editor-preview", Static)
+            assert '"TIME": "set time + % &\\r\\n"' in str(preview.renderable)
+
+    asyncio.run(scenario())
+
+
+def test_config_editor_new_flow_adds_command_rows_and_saves_form_data(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
+    profile = create_user_profile("alice")
+
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False, startup_user=profile)
+        app.device_manager = FakeDeviceManager()
+
+        async with app.run_test() as pilot:
+            await pilot.click("#config-editor-btn")
+            await pilot.pause()
+
+            assert isinstance(app.screen, ConfigEditorScreen)
+            app.screen.query_one("#config-new", Button).press()
+            await pilot.pause()
+
+            name_input = app.screen.query_one("#config-name-input", Input)
+            label_1 = app.screen.query_one("#config-command-label-1", Input)
+            value_1 = app.screen.query_one("#config-command-value-1", Input)
+            name_input.value = "field_setup"
+            label_1.value = "SET / DATE"
+            value_1.value = "set date\\r\\n"
+            await pilot.pause()
+
+            app.screen.query_one("#config-add-command", Button).press()
+            await pilot.pause()
+            await pilot.pause()
+            label_2 = app.screen.query_one("#config-command-label-2", Input)
+            value_2 = app.screen.query_one("#config-command-value-2", Input)
+            label_2.value = "GET / STATUS"
+            value_2.value = "get status + 100% & ok\\r\\n"
+            await pilot.pause()
+
+            preview = app.screen.query_one("#config-editor-preview", Static)
+            assert '"SET"' in str(preview.renderable)
+            assert '"STATUS": "get status + 100% & ok\\r\\n"' in str(preview.renderable)
+            editor_region = app.screen.query_one("#config-command-editor").region
+            row_1_region = app.screen.query_one("#config-command-row-1").region
+            row_2_region = app.screen.query_one("#config-command-row-2").region
+            assert editor_region.x <= row_1_region.x
+            assert row_1_region.right <= editor_region.right
+            assert editor_region.x <= row_2_region.x
+            assert row_2_region.right <= editor_region.right
+
+            app.screen.query_one("#config-save", Button).press()
+            await pilot.pause()
+
+            saved_payload = json.loads(
+                get_user_command_config_path("alice", "field_setup").read_text(encoding="utf-8")
+            )
+            assert saved_payload["NAME"] == "field_setup"
+            assert saved_payload["COMMANDS"]["SET"]["DATE"] == "set date\r\n"
+            assert saved_payload["COMMANDS"]["GET"]["STATUS"] == "get status + 100% & ok\r\n"
+            assert "field_setup" in app.current_user.command_configs
+            assert "field_setup" in app._command_configs
+
+    asyncio.run(scenario())
+
+def test_config_editor_delete_button_removes_command_row(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
+    profile = create_user_profile("alice")
+    command_path = get_user_command_config_path("alice", "alice_cmds")
+    command_path.write_text(
+        json.dumps(
+            {
+                "NAME": "DEFAULTS",
+                "COMMANDS": {
+                    "PING": "ping\r\n",
+                    "GET": {
+                        "STATUS": "status\r\n",
+                    },
+                },
+            },
+            indent=4,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False, startup_user=profile)
+        app.device_manager = FakeDeviceManager()
+
+        async with app.run_test() as pilot:
+            await pilot.click("#config-editor-btn")
+            await pilot.pause()
+
+            assert isinstance(app.screen, ConfigEditorScreen)
+            app.screen._display_document_for_path(command_path)
+            await pilot.pause()
+
+            delete_button = app.screen.query_one("#config-command-delete-1", Button)
+            assert delete_button.label.plain.strip() == "X"
+            assert delete_button.region.width <= 5
+
+            app.screen.query_one("#config-command-delete-1", Button).press()
+            await pilot.pause()
+
+            assert app.screen.query_one("#config-command-label-1", Input).value == "GET / STATUS"
+            assert app.screen.query_one("#config-command-row-2").display is False
+
+            app.screen.query_one("#config-save", Button).press()
+            await pilot.pause()
+
+            saved_path = get_user_command_config_path("alice", "DEFAULTS")
+            saved_payload = json.loads(saved_path.read_text(encoding="utf-8"))
+            assert "PING" not in saved_payload["COMMANDS"]
+            assert saved_payload["COMMANDS"]["GET"]["STATUS"] == "status\r\n"
+
+    asyncio.run(scenario())
+
+
+def test_config_editor_resets_input_view_when_loading_new_values(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
+    profile = create_user_profile("alice")
+    first_path = get_user_command_config_path("alice", "first")
+    second_path = get_user_command_config_path("alice", "second")
+    first_path.write_text(
+        json.dumps(
+            {
+                "NAME": "FIRST",
+                "COMMANDS": {
+                    "LONG": "ffff\r\n",
+                },
+            },
+            indent=4,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    second_path.write_text(
+        json.dumps(
+            {
+                "NAME": "SECOND",
+                "COMMANDS": {
+                    "SHORT": "CMD",
+                },
+            },
+            indent=4,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False, startup_user=profile)
+        app.device_manager = FakeDeviceManager()
+
+        async with app.run_test() as pilot:
+            await pilot.click("#config-editor-btn")
+            await pilot.pause()
+
+            assert isinstance(app.screen, ConfigEditorScreen)
+            app.screen._display_document_for_path(first_path)
+            await pilot.pause()
+
+            value_input = app.screen.query_one("#config-command-value-1", Input)
+            value_input.cursor_position = len(value_input.value)
+            value_input.view_position = 4
+
+            app.screen._display_document_for_path(second_path)
+            await pilot.pause()
+
+            next_input = app.screen.query_one("#config-command-value-1", Input)
+            assert next_input.value == "CMD"
+            assert next_input.cursor_position == 0
+            assert next_input.view_position == 0
+
+    asyncio.run(scenario())
+
+
+def test_config_editor_edits_existing_file_without_raw_json_changes(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
+    profile = create_user_profile("alice")
+    command_path = get_user_command_config_path("alice", "alice_cmds")
+
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False, startup_user=profile)
+        app.device_manager = FakeDeviceManager()
+
+        async with app.run_test() as pilot:
+            await pilot.click("#config-editor-btn")
+            await pilot.pause()
+            assert isinstance(app.screen, ConfigEditorScreen)
+
+            app.screen._display_document_for_path(command_path)
+            await pilot.pause()
+
+            app.screen.query_one("#config-name-input", Input).value = "Updated Defaults"
+            app.screen.query_one("#config-command-label-1", Input).value = "PING"
+            app.screen.query_one("#config-command-value-1", Input).value = "ping now\\r\\n"
+            await pilot.pause()
+
+            app.screen.query_one("#config-save", Button).press()
+            await pilot.pause()
+
+            saved_path = get_user_command_config_path("alice", "Updated Defaults")
+            saved_payload = json.loads(saved_path.read_text(encoding="utf-8"))
+            assert saved_payload["NAME"] == "Updated Defaults"
+            assert saved_payload["COMMANDS"]["PING"] == "ping now\r\n"
+            assert not command_path.exists()
+            assert app._command_configs["Updated Defaults"].name == "Updated Defaults"
+
+    asyncio.run(scenario())
+
+
+def test_workspace_updates_continue_while_config_editor_screen_is_open(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
+    profile = create_user_profile("alice")
+
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False, startup_user=profile)
         app.device_manager = FakeDeviceManager()
 
         async with app.run_test() as pilot:
             app._connect_selected_device()
             await pilot.pause()
 
-            app.action_toggle_script_editor()
+            app.action_open_config_editor()
             await pilot.pause()
-            assert isinstance(app.screen, ScriptEditorScreen)
+            assert isinstance(app.screen, ConfigEditorScreen)
 
             app._handle_serial_event_ui(
                 SerialEvent(device_id="COM1", port="COM1", direction="RX", payload=b"hello-from-device")
@@ -180,7 +435,8 @@ def test_workspace_log_scroll_does_not_jump_when_user_is_reading_history() -> No
             await pilot.pause()
 
             raw_log = app._workspace_logs["COM1"]
-            raw_log.scroll_to(y=0, animate=False, immediate=True)
+            raw_log.auto_scroll = False
+            raw_log.scroll_to(y=0, animate=False, immediate=True, force=True)
             await pilot.pause()
             assert raw_log.scroll_y == 0
 
@@ -241,6 +497,46 @@ def test_command_config_select_is_blank_without_user() -> None:
             select = app.query_one("#command-config-select", Select)
             assert select.is_blank() is True
             assert select.disabled is True
+            assert app.query_one("#config-editor-btn", Button).disabled is True
+
+    asyncio.run(scenario())
+
+
+def test_clear_console_button_clears_active_workspace_history() -> None:
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False)
+        app.device_manager = FakeDeviceManager()
+
+        async with app.run_test() as pilot:
+            app._connect_selected_device()
+            app._handle_serial_event_ui(
+                SerialEvent(device_id="COM1", port="COM1", direction="RX", payload=b"hello")
+            )
+            await pilot.pause()
+
+            await pilot.click("#clear-console-btn")
+            await pilot.pause()
+
+            assert app.sessions["COM1"].raw_events == []
+            assert app.query_one("#clear-console-btn", Button).disabled is False
+
+    asyncio.run(scenario())
+
+
+def test_current_user_summary_is_positioned_below_workspace_selection(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
+    profile = create_user_profile("alice")
+
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False, startup_user=profile)
+        app.device_manager = FakeDeviceManager()
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            workspace = app.query_one("#workspace-selection")
+            summary = app.query_one("#current-user-summary")
+            assert abs(summary.region.x - workspace.region.x) <= 2
+            assert summary.region.y > workspace.region.y
 
     asyncio.run(scenario())
 

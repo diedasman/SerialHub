@@ -5,14 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "serialhub"
 version = "0.1.0"
-description = "Cross-platform serial terminal with local web mode, per-device workspaces, and scripting"
+description = "Cross-platform serial terminal with local web mode, per-device workspaces, and command configs"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { file = "LICENSE" }
 authors = [
   { name = "SerialHub Contributors" }
 ]
-keywords = ["serial", "terminal", "web", "tcp", "scripting", "textual"]
+keywords = ["serial", "terminal", "web", "tcp", "textual", "config"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",
