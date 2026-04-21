@@ -38,6 +38,7 @@ Screen {
 #label-row {
     layout: horizontal;
     height: auto;
+    width: auto;
 }
 
 #connection-tabs{
@@ -272,6 +273,20 @@ TabPane {
     min-height: 12;
     border: solid $secondary;
     background: $background;
+}
+
+#current-user-summary {
+    width: auto;
+    margin-right: 4;
+    
+}
+
+#config-editor-btn {
+    width: auto;
+    height: auto;
+    margin-right: 1;
+    margin-left: 1;
+
 }
 
 #footer-row {

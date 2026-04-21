@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 
 - Added a packaged ASCII logo asset under `src/serialhub/assets/logo.txt`.
 - Added regression coverage for packaged logo loading and workspace placeholder content.
+- Added a `scripts/dev_setup.ps1` helper for returning to an editable Windows development environment quickly.
 
 ### Changed
 

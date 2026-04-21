@@ -156,6 +156,16 @@ serialhub --web
 
 If you are contributing to the project, use a local virtual environment instead of the end-user `pipx` flow:
 
+Windows shortcut from the project root:
+
+```powershell
+. .\scripts\dev_setup.ps1
+```
+
+Dot-source the script so the virtual environment stays active in the current PowerShell session.
+
+Manual setup:
+
 ```powershell
 python -m venv .venv
 .venv\Scripts\Activate.ps1

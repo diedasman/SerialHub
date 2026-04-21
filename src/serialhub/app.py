@@ -234,8 +234,8 @@ class ScriptEditorScreen(Screen[None]):
         self._set_panel_border_titles()
 
     def _set_panel_border_titles(self) -> None:
-        self.query_one("#script-list", Vertical).border_title = " Script List "
-        self.query_one("#script-screen", Vertical).border_title = " Script Editor "
+        self.query_one("#script-list", Vertical).border_title = " FILE BROWSER "
+        self.query_one("#script-screen", Vertical).border_title = " EDITOR "
 
     def action_close_script_editor(self) -> None:
         self.app.pop_screen()
@@ -414,6 +414,7 @@ class SerialHubApp(App[None]):
             with Vertical(id="center-panel", classes="panel"):
                 with Horizontal(id="workspace-toolbar"):
                     yield Static("No device workspaces open.", id="workspace-selection", classes="hint")
+                    yield Button("Clear Console", id="clear-console-btn", variant="warning", disabled=True)
                     yield Button("Close Tab", id="close-active-workspace", variant="error", disabled=True)
 
                 with TabbedContent(initial=self.WORKSPACE_PLACEHOLDER_ID, id="workspace-tabs"):
@@ -458,6 +459,7 @@ class SerialHubApp(App[None]):
                 with Horizontal(id="label-row"):
                     # yield Static("USER DEFINED", classes="section-title")
                     yield Static("No user.", id="current-user-summary", classes="section-title")
+                    yield Button("CONFIG EDITOR", id="config-editor-btn", variant="warning")
                 
                 yield Select([], id="command-config-select", prompt="Select command config", allow_blank=True)
                 # yield Static(
@@ -469,7 +471,6 @@ class SerialHubApp(App[None]):
 
         with Horizontal(id="footer-row"):
             yield Footer(id="app-footer")
-            # yield Static("SerialHub - by @diedasman", id="footer-brand")
 
     def on_mount(self) -> None:
         self._set_panel_border_titles()
@@ -886,9 +887,9 @@ class SerialHubApp(App[None]):
         self.notify(f"Detected {len(self.discovered_devices)} serial device(s).")
 
     def _set_panel_border_titles(self) -> None:
-        self._query_ui("#left-panel", Vertical).border_title = " Connection "
-        self._query_ui("#center-panel", Vertical).border_title = " Monitor "
-        self._query_ui("#right-panel", Vertical).border_title = " Functions "
+        self._query_ui("#left-panel", Vertical).border_title = " CONNECTION "
+        self._query_ui("#center-panel", Vertical).border_title = " MONITOR "
+        self._query_ui("#right-panel", Vertical).border_title = " FUNCTIONS "
 
     def _update_device_meta(self, selected_port: str) -> None:
         selected = next((device for device in self.discovered_devices if device.port == selected_port), None)
