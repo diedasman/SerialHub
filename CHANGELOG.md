@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [Unreleased] - 2026-04-21
+
+### Added
+
+- Added a packaged ASCII logo asset under `src/serialhub/assets/logo.txt`.
+- Added regression coverage for packaged logo loading and workspace placeholder content.
+
+### Changed
+
+- Switched the end-user installation flow and helper scripts to a `pipx`-first setup so `serialhub` is available on the terminal `PATH` without activating a virtual environment.
+
+### Fixed
+
+- Fixed logo loading for non-editable installs by switching from repo-root file discovery to packaged resources.
+
+### Removed
+
+- Removed the built-in external protocol decoder dependency and its remaining code, tests, and documentation references from the base application.
+
 ## [Unreleased] - 2026-04-20
 
 ### Added
@@ -28,7 +47,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- Connection/session management now supports both serial and TCP transports while preserving the current DLMS core code paths for future work.
+- Connection/session management now supports both serial and TCP transports while preserving room for future protocol plugins.
 - Workspace and serial-device empty states now make it clear that TCP/IP connections remain available even when no serial ports are detected.
 - Reworked the left-panel connection actions to use a docked bottom action row instead of percentage-based spacing.
 
@@ -63,16 +82,16 @@ All notable changes to this project will be documented in this file.
 - Added dynamic per-device workspace tabs that are created as devices connect.
 - Added a dedicated script editor screen with a toolbar button plus `Ctrl+E` and `Esc` shortcuts.
 - Added a connected dark/light theme toggle on `Ctrl+T`.
-- Added a tabbed `Connection` panel with `Serial`, `TCP/IP`, and `DLMS` sections.
+- Added a tabbed `Connection` panel with `Serial` and `TCP/IP` sections.
 - Added UI tests covering the script editor screen and workspace-tab persistence.
 
 ### Changed
 
-- Workspace tabs now show the raw serial stream for each device instead of fixed `RAW`, `PARSED`, and `DLMS` panes.
+- Workspace tabs now show the raw serial stream for each device instead of fixed `RAW` and parsed multi-pane layouts.
 - Disconnecting a device now preserves its workspace tab and captured output until the user closes that tab.
 - Closing a live workspace tab now disconnects the device before removing the saved session.
 - Moved scripting controls out of the main workspace and into their own screen while keeping the main UI state intact.
-- Removed DLMS-specific notifications from the current UI flow while keeping the decoder code in place for future work.
+- Removed protocol-specific notifications from the current UI flow while keeping room for future decoder work.
 - Updated README documentation to reflect the new workspace, scripting, and theme behavior.
 
 ## [Unreleased] - 2026-04-05
@@ -109,8 +128,8 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - Textual TUI for multi-device serial workflows.
-- Mandatory GURUX DLMS decoder integration.
-- Tabbed RAW/PARSED/DLMS visualization windows.
+- Initial structured protocol decoder integration.
+- Tabbed RAW/PARSED visualization windows.
 - Embedded Python scripting hooks (`on_message`, `on_pattern`).
 - Per-device logging with optional custom filename and auto-log on connect.
 - Cross-platform install scripts for Windows and Linux.

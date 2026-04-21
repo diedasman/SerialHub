@@ -1,6 +1,6 @@
 # SerialHub
 
-SerialHub is a cross-platform serial tool with two local launch modes: the native Textual terminal UI and the same Textual app served in a browser from your machine. It is focused on practical multi-device serial workflows, local user profiles, persistent per-device workspaces, automation scripts, and per-device logging while keeping the DLMS integration in the codebase for upcoming UI work.
+SerialHub is a cross-platform serial tool with two local launch modes: the native Textual terminal UI and the same Textual app served in a browser from your machine. It is focused on practical serial and TCP workflows, local user profiles, persistent per-device workspaces, automation scripts, and per-device logging.
 
 ```
                                                                                                     
@@ -31,6 +31,7 @@ Right now the app is focused on a raw serial workflow:
 - [Installation](#installation)
 - [How To Run](#how-to-run)
 - [Updating SerialHub](#updating-serialhub)
+- [Development Setup](#development-setup)
 - [First-Time Setup In The App](#first-time-setup-in-the-app)
 - [Using The Main Workflow](#using-the-main-workflow)
 - [Generated Output Structure](#generated-output-structure)
@@ -60,7 +61,6 @@ Right now the app is focused on a raw serial workflow:
 - Dynamic workspace tabs with one raw stream view per device
 - Workspace tabs stay available after disconnect until manually closed
 - Closing a live workspace tab also disconnects the device
-- DLMS parsing backend remains installed through `gurux_dlms` for future UI work
 - Textual browser mode via `textual-serve` with automatic browser launch
 - Dedicated script editor screen with:
   - `on_message`
@@ -81,15 +81,19 @@ Right now the app is focused on a raw serial workflow:
 ## Requirements
 
 - Python `3.12` or newer
-- `pip`
+- `pipx` for the recommended end-user install flow
+- `pip` for development installs
 - A terminal that can run Textual apps for CLI mode
 - A modern web browser for browser mode
 - Serial permissions/access on your OS
-- `gurux_dlms` (installed automatically via project dependencies)
 
 ## Installation
 
-### 1. Clone the repository
+### Recommended End-User Install
+
+Clone the repository or download a source snapshot, then install SerialHub with `pipx` from the project root.
+
+#### 1. Clone the repository
 
 ```powershell
 git clone https://github.com/diedasman/SerialHub.git
@@ -98,57 +102,48 @@ git clone https://github.com/diedasman/SerialHub.git
 cd SerialHub
 ```
 
-Important: every install command below assumes your terminal is inside the project root, the folder that contains `pyproject.toml`.
+Important: the install commands below assume your terminal is inside the project root, the folder that contains `pyproject.toml`.
 
-### 2. Create a virtual environment
+#### 2. Install `pipx`
 
-#### Windows PowerShell:
+Windows PowerShell:
 
 ```powershell
-python -m venv .venv
+py -m pip install --user pipx
 ```
 ```powershell
-.venv\Scripts\Activate.ps1
+py -m pipx ensurepath
 ```
 
-#### Windows Command Prompt:
-
-```bat
-python -m venv .venv
-```
-```bat
-.venv\Scripts\activate.bat
-```
-
-#### Linux:
+Linux:
 
 ```bash
-python3 -m venv .venv
-```
-```bash
-source .venv/bin/activate
+python3 -m pip install --user pipx
+python3 -m pipx ensurepath
 ```
 
-### 3. Install the project
+If this is your first `pipx` install, restart the terminal after `ensurepath`.
+
+#### 3. Install SerialHub globally on your `PATH`
 
 ```powershell
-python -m pip install --upgrade pip
+python -m pipx install .
 ```
+
+This installs the `serialhub` command in its own isolated environment and exposes it on your `PATH`, so you can run it from any terminal without activating a virtual environment.
+
+You can also use the provided install scripts from the project root:
+
+Windows PowerShell:
+
 ```powershell
-python -m pip install -e .
+.\scripts\install_windows.ps1
 ```
 
-This installs the `serialhub` command from the local source tree in editable mode.
-
-#### 4. Summary (Powershell)
+Linux:
 
 ```bash
-git clone https://github.com/diedasman/SerialHub.git
-cd SerialHub
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-python -m pip install -e .
-serialhub
+bash ./scripts/install_linux.sh
 ```
 
 Browser mode is available immediately after install:
@@ -157,9 +152,18 @@ Browser mode is available immediately after install:
 serialhub --web
 ```
 
-## VS Code Setup
+## Development Setup
 
-If you are opening the project in VS Code, select the virtual environment interpreter after installation:
+If you are contributing to the project, use a local virtual environment instead of the end-user `pipx` flow:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e .[dev]
+```
+
+If you are opening the project in VS Code, select the virtual environment interpreter after setup:
 
 1. Open the command palette.
 2. Run `Python: Select Interpreter`.
@@ -171,13 +175,13 @@ This helps VS Code resolve imports from Textual, pyserial, and the local `src` p
 
 ### CLI mode
 
-From anywhere after installation:
+From anywhere after a `pipx` install:
 
 ```powershell
 serialhub
 ```
 
-Alternative:
+Alternative from a checkout:
 
 ```powershell
 python -m serialhub
@@ -214,23 +218,26 @@ You can override the storage location by setting `SERIALHUB_DATA_DIR` before lau
 
 ## Updating SerialHub
 
-If SerialHub was installed from a git checkout as documented above, update with:
+If SerialHub was installed with `pipx` from a local checkout, update it from the project root with:
+
+```powershell
+python -m pipx install --force .
+```
+
+You can also rerun the platform install script:
+
+```powershell
+.\scripts\install_windows.ps1
+```
+
+```bash
+bash ./scripts/install_linux.sh
+```
+
+If you are working in an editable development checkout, the built-in updater remains available:
 
 ```powershell
 serialhub update
-```
-
-The update command:
-
-- verifies SerialHub is backed by a git checkout
-- stops if there are local uncommitted changes
-- runs `git pull --ff-only`
-- refreshes the editable install
-
-If SerialHub was not installed from a git checkout, re-clone and reinstall with:
-
-```powershell
-python -m pip install -e .
 ```
 
 ## First-Time Setup In The App

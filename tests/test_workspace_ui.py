@@ -128,7 +128,7 @@ def test_disconnect_preserves_workspace_until_close() -> None:
 
             assert "COM1" in app.sessions
             assert app.active_device_id == "COM1"
-            assert str(app.query_one("#workspace-selection").render()) == "Active workspace: COM1 (saved)"
+            assert str(app.query_one("#workspace-selection").renderable) == "Active workspace: COM1 (saved)"
             assert app.query_one("#close-active-workspace", Button).disabled is False
 
             app._close_workspace_for_device("COM1")
@@ -136,7 +136,7 @@ def test_disconnect_preserves_workspace_until_close() -> None:
 
             assert "COM1" not in app.sessions
             assert app.active_device_id is None
-            assert str(app.query_one("#workspace-selection").render()) == "No device workspaces open."
+            assert str(app.query_one("#workspace-selection").renderable) == "No device workspaces open."
             assert app.query_one("#close-active-workspace", Button).disabled is True
 
     asyncio.run(scenario())
@@ -278,7 +278,7 @@ def test_tcp_tab_connects_workspace_from_ip_and_port() -> None:
             assert app.sessions["192.168.0.10:4059"].transport == "tcp"
             assert app.active_device_id == "192.168.0.10:4059"
             assert "192.168.0.10:4059" in app._workspace_logs
-            assert str(app.query_one("#workspace-selection").render()) == (
+            assert str(app.query_one("#workspace-selection").renderable) == (
                 "Active workspace: 192.168.0.10:4059 (connected)"
             )
 
@@ -352,7 +352,7 @@ def test_tcp_disconnect_preserves_workspace_until_closed() -> None:
 
             assert "192.168.0.10:4059" in app.sessions
             assert app.active_device_id == "192.168.0.10:4059"
-            assert str(app.query_one("#workspace-selection").render()) == (
+            assert str(app.query_one("#workspace-selection").renderable) == (
                 "Active workspace: 192.168.0.10:4059 (saved)"
             )
 

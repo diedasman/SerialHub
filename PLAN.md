@@ -1,7 +1,7 @@
 # plan.md
 
 ## Project Overview
-A cross-platform serial communication and terminal application with advanced protocol support (DLMS-first), scripting, logging, and multi-device visualization. The application should function as a full-featured terminal replacement while supporting structured protocol decoding and automation workflows.
+A cross-platform serial communication and terminal application with extensible protocol parsing, scripting, logging, and multi-device visualization. The application should function as a full-featured terminal replacement while supporting structured protocol decoding and automation workflows.
 
 ---
 
@@ -9,7 +9,7 @@ A cross-platform serial communication and terminal application with advanced pro
 
 - Build a **fully functional terminal application** for serial communication
 - Support **USB/Serial device communication** with auto-detection
-- Implement **DLMS protocol support (via GURUX - mandatory)**
+- Provide an **extensible protocol parsing layer** through optional integrations
 - Provide **multi-device handling and visualization**
 - Enable **user scripting (Python)** for automation and interaction
 - Include **trace logging and session recording**
@@ -36,11 +36,9 @@ A cross-platform serial communication and terminal application with advanced pro
 
 ### 2. Protocol Support
 
-#### DLMS (Primary Focus)
-- Integrate GURUX DLMS library
+#### Built-In Parsing
+- Provide generic ASCII/binary decoding
 - Support:
-  - Meter reading
-  - OBIS code parsing
   - Frame decoding
 - Provide both:
   - Raw frame view
@@ -80,7 +78,7 @@ A cross-platform serial communication and terminal application with advanced pro
 
 ### 5. Visualization Layer
 - Raw stream view (terminal-like)
-- Structured protocol decoding view (for DLMS and others)
+- Structured protocol decoding view (for optional parsers and future plugins)
 - Optional:
   - Graphing of numeric values (future scope)
   - Highlighting/filtering of incoming data
@@ -144,11 +142,11 @@ A cross-platform serial communication and terminal application with advanced pro
 ### 10. Installation & Distribution
 - Hosted on GitHub
 - Install via:
-  - Git clone + setup script
+  - Git clone + `pipx` install script
 - Provide:
   - Linux install script
   - Windows install script
-- Dependency management (virtualenv or similar)
+- Dependency management (`pipx` for end users, virtualenv or similar for development)
 
 ---
 
@@ -158,7 +156,7 @@ A cross-platform serial communication and terminal application with advanced pro
 - **Device Layer**
   - Serial communication handling
 - **Protocol Layer**
-  - DLMS (GURUX)
+  - Built-in ASCII/Binary decoder
   - Future protocol plugins
 - **Core Engine**
   - Message routing
@@ -208,7 +206,7 @@ A cross-platform serial communication and terminal application with advanced pro
 
 ## Risks & Constraints
 
-- GURUX integration complexity
+- Optional protocol integration complexity
 - Cross-platform serial handling inconsistencies
 - Managing concurrency for multiple devices
 - UI complexity in Textual for advanced layouts
@@ -218,4 +216,4 @@ A cross-platform serial communication and terminal application with advanced pro
 
 ## Summary
 
-This project aims to go beyond a simple serial monitor and become a modular, extensible communication platform with strong DLMS support, automation capabilities, and multi-device management. The main challenge lies in balancing flexibility (scripting, protocols) with usability (clean TUI, performance, clarity).
+This project aims to go beyond a simple serial monitor and become a modular, extensible communication platform with automation capabilities, optional protocol integrations, and multi-device management. The main challenge lies in balancing flexibility (scripting, protocols) with usability (clean TUI, performance, clarity).

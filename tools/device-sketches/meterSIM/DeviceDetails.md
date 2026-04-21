@@ -29,8 +29,8 @@ Firmware is to be further developed by Codex.
 
 ### Short term: 
 
-Implement modes for device operation; Basic serial, DLMS meter simulation, TCP, etc. Only implemnt basic serial mode and DLMS as placeholder mode. RGB LED is to change color with each mode. Two buttons should be present on the display; start/stop serial stream and mode toggle/cycle.
+Implement modes for device operation; basic serial, TCP, and a future protocol-simulation placeholder mode. Only implement basic serial mode and a placeholder secondary mode for now. RGB LED is to change color with each mode. Two buttons should be present on the display; start/stop serial stream and mode toggle/cycle.
 
 ### Long term: 
 
-DLMS meter simulation implementation. Device simulated DLMS meter comms.
+Protocol simulation implementation. Device-simulated protocol communications.

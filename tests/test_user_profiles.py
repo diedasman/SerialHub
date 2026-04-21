@@ -90,7 +90,7 @@ def test_login_screen_creates_user_and_updates_main_ui(monkeypatch, tmp_path) ->
             assert app.current_user is not None
             assert app.current_user.username == "alice"
             assert get_user_profile_path("alice").exists()
-            assert str(app.query_one("#current-user-summary").render()) == "user: alice"
+            assert str(app.query_one("#current-user-summary").renderable) == "user: alice"
 
     asyncio.run(scenario())
 

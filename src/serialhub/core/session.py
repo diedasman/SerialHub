@@ -14,7 +14,6 @@ class DeviceSession:
     config: ConnectionConfig
     raw_events: list[SerialEvent] = field(default_factory=list)
     parsed_lines: list[str] = field(default_factory=list)
-    dlms_lines: list[str] = field(default_factory=list)
     logger: SessionLogger | None = None
     timestamps_enabled: bool = True
 
@@ -27,8 +26,3 @@ class DeviceSession:
         self.parsed_lines.append(line)
         if len(self.parsed_lines) > limit:
             self.parsed_lines = self.parsed_lines[-limit:]
-
-    def add_dlms_line(self, line: str, limit: int = 1000) -> None:
-        self.dlms_lines.append(line)
-        if len(self.dlms_lines) > limit:
-            self.dlms_lines = self.dlms_lines[-limit:]

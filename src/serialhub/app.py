@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from importlib.resources import files
 from pathlib import Path
 
 from textual.app import App, ComposeResult  # type: ignore
@@ -30,7 +31,7 @@ from serialhub.core.session import DeviceSession
 from serialhub.defaults import DEFAULT_SCRIPT_SOURCE
 from serialhub.logging.paths import resolve_log_destination
 from serialhub.logging.session_logger import SessionLogger
-from serialhub.protocols import AsciiBinaryDecoder, GuruxDlmsDecoder
+from serialhub.protocols import AsciiBinaryDecoder
 from serialhub.scripting.engine import ScriptEngine
 from serialhub.theme import (
     APP_THEMES,
@@ -71,6 +72,14 @@ _INPUT_HISTORY_FALLBACK_FILENAMES = {
     INPUT_HISTORY_TCP_IP: "tcp_ip_history.txt",
     INPUT_HISTORY_TCP_PORT: "tcp_port_history.txt",
 }
+
+
+def load_ascii_logo() -> str:
+    """Load the packaged ASCII logo text."""
+    try:
+        return files("serialhub").joinpath("assets").joinpath("logo.txt").read_text(encoding="utf-8").strip()
+    except (FileNotFoundError, ModuleNotFoundError, OSError):
+        return ""
 
 
 @dataclass(slots=True)
@@ -305,21 +314,12 @@ class SerialHubApp(App[None]):
         }
 
         self._ascii_decoder = AsciiBinaryDecoder()
-        self._dlms_decoder = GuruxDlmsDecoder()
-        
+
         self._logo_content = self._load_logo()
 
     def _load_logo(self) -> str:
-        """Load ASCII logo from logo.txt file."""
-        try:
-            # Navigate from src/serialhub/app.py to workspace root (3 levels up)
-            logo_path = Path(__file__).parent.parent.parent / "logo.txt"
-            if logo_path.exists():
-                return logo_path.read_text(encoding="utf-8").strip()
-        except Exception:
-            # Silently fail if logo can't be loaded
-            pass
-        return ""
+        """Load the packaged ASCII logo."""
+        return load_ascii_logo()
 
     def _workspace_placeholder_text(self) -> str:
         return self._logo_content or "SerialHub"
@@ -406,9 +406,6 @@ class SerialHubApp(App[None]):
                             history_id=INPUT_HISTORY_TCP_PORT,
                         )
                         yield Button("Clear", id="clear-tcp-inputs")
-
-                    # with TabPane("DLMS", id="connection-dlms"):
-                    #     yield Static("DLMS tools will return in a later update.", classes="hint")
 
                 with Horizontal(id="left-panel-actions", classes="stack-row"):
                     yield Button("Connect", id="connect-btn", variant="success")
@@ -1354,22 +1351,16 @@ class SerialHubApp(App[None]):
         prefix = self._format_prefix(session, event.timestamp)
         if event.direction in {"RX", "TX"} and event.payload is not None:
             ascii_result = self._ascii_decoder.decode(event.payload)
-            dlms_result = self._dlms_decoder.decode(event.payload)
 
             session.add_parsed_line(f"{prefix}{event.direction} {ascii_result.protocol}")
             for line in ascii_result.lines:
                 session.add_parsed_line(f"  {line}")
-
-            session.add_dlms_line(f"{prefix}{event.direction} {dlms_result.protocol}")
-            for line in dlms_result.lines:
-                session.add_dlms_line(f"  {line}")
 
             if event.direction == "RX":
                 self.script_engine.publish_rx(event.device_id, event.payload)
         else:
             info_text = event.text or ""
             session.add_parsed_line(f"{prefix}{event.direction} {info_text}")
-            session.add_dlms_line(f"{prefix}{event.direction} {info_text}")
 
         self._append_workspace_event(event.device_id, event)
         self._update_workspace_tab_label(event.device_id)
