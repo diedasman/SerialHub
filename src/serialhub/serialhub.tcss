@@ -71,97 +71,137 @@ TabPane {
 .workspace-toolbar-widget {
     height: auto;
     border: round $secondary;
-    padding: 0 0;
+    padding: 0 1;
     margin-right: 1;
 }
 
 #workspace-connection-widget {
-    width: auto;
-    min-width: 0;
+    width: 24;
+    min-width: 24;
 }
 
-#workspace-connection-row {
+#connection-status-title,
+#workspace-data-title {
     height: auto;
-    width: auto;
-}
-
-#connection-status-label {
+    width: 1fr;
     color: $secondary;
     text-style: bold;
 }
 
-#connection-status-label {
+#workspace-status-indicators {
+    height: auto;
     width: auto;
+}
+
+.workspace-indicator-label {
+    width: auto;
+    color: $accent;
     margin-right: 0;
 }
 
-#connection-status-led {
-    width: 3;
-    min-width: 3;
-    height: 1;
-    background: $surface;
-    border: round $panel;
+.workspace-indicator-label-rx {
+    color: $warning;
 }
 
-#connection-status-led.connected {
-    background: $success;
-    border: round $success;
+.workspace-indicator-label-tx {
+    color: $success;
+}
+
+#connection-status-switch {
+    width: 4;
+    min-width: 4;
+    border: none;
+    background: transparent;
+    padding: 0 0;
+    margin-right: 1;
+}
+
+#connection-status-switch > .switch--slider {
+    color: $panel;
+    background: $surface-darken-1;
+}
+
+#connection-status-switch.-on > .switch--slider {
+    color: $success;
+    background: $success-darken-3;
 }
 
 #workspace-data-widget {
     width: 1fr;
-    min-width: 10;
+    min-width: 6;
 }
 
-.workspace-data-row {
+.workspace-activity {
     height: auto;
-    width: 1fr;
+    width: auto;
+    min-width: 1;
+    border: none;
+    background: transparent;
+    padding: 0;
+    margin-right: 1;
 }
 
-.workspace-data-label {
-    width: 2;
-    color: $accent;
+.workspace-activity > .toggle--button {
+    color: $panel;
+    background: transparent;
 }
 
-.workspace-data-label-rx {
+.workspace-activity.-on > .toggle--button {
+    background: transparent;
+}
+
+.workspace-activity-rx.-on > .toggle--button {
+    color: $warning;
+}
+
+.workspace-activity-tx.-on > .toggle--button {
     color: $success;
 }
 
-.workspace-data-label-tx {
-    color: $error;
-}
-
-#workspace-data-widget Sparkline {
+#workspace-io-sparkline {
     width: 1fr;
 }
 
-#workspace-rx-sparkline > .sparkline--max-color {
-    color: $success;
+#workspace-io-sparkline > .sparkline--max-color {
+    color: $warning;
 }
 
-#workspace-rx-sparkline > .sparkline--min-color {
+#workspace-io-sparkline > .sparkline--min-color {
     color: $success 30%;
 }
 
-#workspace-tx-sparkline > .sparkline--max-color {
-    color: $error;
-}
-
-#workspace-tx-sparkline > .sparkline--min-color {
-    color: $error 30%;
-}
-
 #workspace-toolbar-actions {
-    width: 14;
+    width: 8;
     height: auto;
 }
 
-#clear-console-btn,
-#close-active-workspace {
+.workspace-flat-button {
+    min-width: 0;
     width: 1fr;
-    margin-top: 0;
-    margin-left: 0;
-    height: 1;
+    height: 3;
+    padding: 0 0;
+    border: none;
+    background: $surface 12%;
+    content-align: center middle;
+}
+
+.workspace-flat-button.-warning {
+    color: $warning;
+}
+
+.workspace-flat-button.-error {
+    color: $error;
+}
+
+.workspace-flat-button:hover,
+.workspace-flat-button:focus {
+    background: $surface 40%;
+}
+
+.workspace-flat-button:disabled {
+    background: $surface 6%;
+    color: $panel-lighten-1;
+    text-opacity: 0.7;
 }
 
 #clear-console-btn {

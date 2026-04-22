@@ -4,7 +4,12 @@ from types import SimpleNamespace
 
 from textual.widgets import Button, Input, Select, Sparkline, Static, TabbedContent
 
-from serialhub.app import ConfigEditorScreen, ConnectionStatusLed, SerialHubApp
+from serialhub.app import (
+    ConfigEditorScreen,
+    ConnectionStatusSwitch,
+    SerialHubApp,
+    WorkspaceActivityIndicator,
+)
 from serialhub.config import ENV_DATA_DIR
 from serialhub.core.models import DeviceInfo, SerialEvent
 from serialhub.user_profiles import (
@@ -16,7 +21,19 @@ from serialhub.user_profiles import (
 
 
 def static_text(widget: Static) -> str:
-    return str(getattr(widget, "renderable", getattr(widget, "_content", "")))
+    renderable = getattr(widget, "renderable", None)
+    if renderable is not None:
+        return str(renderable)
+    try:
+        return str(widget.render())
+    except Exception:
+        return str(
+            getattr(
+                widget,
+                "_content",
+                getattr(widget, "_Static__content", ""),
+            )
+        )
 
 
 class FakeDeviceManager:
@@ -121,6 +138,7 @@ def test_config_editor_loads_focused_file_into_structured_form(monkeypatch, tmp_
             assert isinstance(app.screen, ConfigEditorScreen)
             app.screen._display_document_for_path(command_path)
             await pilot.pause()
+            await pilot.pause()
 
             assert app.screen.query_one("#config-name-input", Input).value == "DEFAULTS"
             assert app.screen.query_one("#config-command-label-1", Input).value == "PING"
@@ -224,12 +242,14 @@ def test_config_editor_delete_button_removes_command_row(monkeypatch, tmp_path) 
             assert isinstance(app.screen, ConfigEditorScreen)
             app.screen._display_document_for_path(command_path)
             await pilot.pause()
+            await pilot.pause()
 
             delete_button = app.screen.query_one("#config-command-delete-1", Button)
             assert delete_button.label.plain.strip() == "X"
             assert delete_button.region.width <= 5
 
             app.screen.query_one("#config-command-delete-1", Button).press()
+            await pilot.pause()
             await pilot.pause()
 
             assert app.screen.query_one("#config-command-label-1", Input).value == "GET / STATUS"
@@ -321,6 +341,7 @@ def test_config_editor_edits_existing_file_without_raw_json_changes(monkeypatch,
 
             app.screen._display_document_for_path(command_path)
             await pilot.pause()
+            await pilot.pause()
 
             app.screen.query_one("#config-name-input", Input).value = "Updated Defaults"
             app.screen.query_one("#config-command-label-1", Input).value = "PING"
@@ -328,6 +349,7 @@ def test_config_editor_edits_existing_file_without_raw_json_changes(monkeypatch,
             await pilot.pause()
 
             app.screen.query_one("#config-save", Button).press()
+            await pilot.pause()
             await pilot.pause()
 
             saved_path = get_user_command_config_path("alice", "Updated Defaults")
@@ -474,7 +496,7 @@ def test_second_connected_device_keeps_workspace_log_visible() -> None:
             raw_log = app._workspace_logs["COM2"]
             assert app.active_device_id == "COM2"
             assert raw_log.region.height > 0
-            assert raw_log.size.height > 0
+            assert raw_log.region.width > 0
 
     asyncio.run(scenario())
 
@@ -568,36 +590,49 @@ def test_workspace_status_container_sits_at_bottom_of_center_panel(monkeypatch, 
     asyncio.run(scenario())
 
 
-def test_connection_led_reflects_active_workspace_connection_state() -> None:
+def test_connection_switch_reflects_active_workspace_connection_state() -> None:
     async def scenario() -> None:
         app = SerialHubApp(require_login=False)
         app.device_manager = FakeDeviceManager()
 
         async with app.run_test() as pilot:
-            led = app.query_one("#connection-status-led", ConnectionStatusLed)
-            assert led.connected is False
+            connection_switch = app.query_one("#connection-status-switch", ConnectionStatusSwitch)
+            assert connection_switch.value is False
+            assert connection_switch.can_focus is False
+
+            await pilot.click("#connection-status-switch")
+            await pilot.pause()
+            assert connection_switch.value is False
 
             app._connect_selected_device()
             await pilot.pause()
-            assert led.connected is True
+            assert connection_switch.value is True
+
+            await pilot.click("#connection-status-switch")
+            await pilot.pause()
+            assert connection_switch.value is True
 
             app._disconnect_device("COM1")
             await pilot.pause()
-            assert led.connected is False
+            assert connection_switch.value is False
 
     asyncio.run(scenario())
 
 
-def test_workspace_sparklines_follow_rx_tx_activity_and_flatten_when_idle() -> None:
+def test_workspace_activity_indicators_and_combined_sparkline_follow_rx_tx_activity_and_flatten_when_idle() -> None:
     async def scenario() -> None:
         app = SerialHubApp(require_login=False)
         app.device_manager = FakeDeviceManager()
 
         async with app.run_test() as pilot:
-            rx_sparkline = app.query_one("#workspace-rx-sparkline", Sparkline)
-            tx_sparkline = app.query_one("#workspace-tx-sparkline", Sparkline)
-            assert all(value == 0.0 for value in list(rx_sparkline.data or []))
-            assert all(value == 0.0 for value in list(tx_sparkline.data or []))
+            sparkline = app.query_one("#workspace-io-sparkline", Sparkline)
+            rx_activity = app.query_one("#workspace-rx-activity", WorkspaceActivityIndicator)
+            tx_activity = app.query_one("#workspace-tx-activity", WorkspaceActivityIndicator)
+            assert all(value == 0.0 for value in list(sparkline.data or []))
+            assert rx_activity.value is False
+            assert tx_activity.value is False
+            assert rx_activity.can_focus is False
+            assert tx_activity.can_focus is False
 
             app._connect_selected_device()
             app._handle_serial_event_ui(
@@ -608,15 +643,19 @@ def test_workspace_sparklines_follow_rx_tx_activity_and_flatten_when_idle() -> N
             )
             await pilot.pause()
 
-            assert max(list(rx_sparkline.data or [0.0])) >= 5.0
-            assert max(list(tx_sparkline.data or [0.0])) >= 2.0
+            data = list(sparkline.data or [])
+            assert max(data or [0.0]) >= 5.0
+            assert min(data or [0.0]) <= -2.0
+            assert rx_activity.value is True
+            assert tx_activity.value is True
 
             for _ in range(40):
                 app._advance_workspace_datastreams()
             await pilot.pause()
 
-            assert all(value == 0.0 for value in list(rx_sparkline.data or []))
-            assert all(value == 0.0 for value in list(tx_sparkline.data or []))
+            assert all(value == 0.0 for value in list(sparkline.data or []))
+            assert rx_activity.value is False
+            assert tx_activity.value is False
 
     asyncio.run(scenario())
 

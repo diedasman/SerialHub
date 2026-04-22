@@ -5,11 +5,13 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from importlib.resources import files
 from pathlib import Path
+from typing import Sequence
 
 from textual.app import App, ComposeResult  # type: ignore
 from textual.binding import Binding  # type: ignore
 from textual.containers import Horizontal, Vertical, VerticalScroll  # type: ignore
 from textual.css.query import NoMatches  # type: ignore
+from textual.events import Click  # type: ignore
 from textual.reactive import reactive  # type: ignore
 from textual.screen import ModalScreen, Screen  # type: ignore
 from textual.widget import Widget  # type: ignore
@@ -19,10 +21,12 @@ from textual.widgets import (  # type: ignore
     DirectoryTree,
     Footer,
     Input,
+    RadioButton,
     RichLog,
     Select,
     Sparkline,
     Static,
+    Switch,
     TabbedContent,
     TabPane,
 )
@@ -81,6 +85,11 @@ _INPUT_HISTORY_FALLBACK_FILENAMES = {
 _CONFIG_COMMAND_SEPARATOR = " / "
 _NEW_CONFIG_DOCUMENT_KEY = "__new__"
 _WORKSPACE_IDLE_TICK_SECONDS = 0.75
+
+
+def _sparkline_signed_peak(values: Sequence[float]) -> float:
+    """Keep the strongest signed activity sample in each sparkline bucket."""
+    return max(values, key=abs, default=0.0)
 
 
 def load_ascii_logo() -> str:
@@ -148,17 +157,33 @@ class HistoryInput(Input):
             app._navigate_input_history(self.history_id, 1)
 
 
-class ConnectionStatusLed(Static):
-    connected = reactive(False)
+class ConnectionStatusSwitch(Switch, can_focus=False):
+    def __init__(self, value: bool = False, *args, **kwargs) -> None:
+        kwargs.setdefault("animate", False)
+        super().__init__(value=value, *args, **kwargs)
 
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(" ", *args, **kwargs)
+    async def _on_click(self, event: Click) -> None:
+        event.stop()
 
-    def watch_connected(self, connected: bool) -> None:
-        if connected:
-            self.add_class("connected")
-            return
-        self.remove_class("connected")
+    def action_toggle_switch(self) -> None:
+        return
+
+    def toggle(self):
+        return self
+
+
+class WorkspaceActivityIndicator(RadioButton, can_focus=False):
+    BUTTON_LEFT = ""
+    BUTTON_RIGHT = ""
+
+    async def _on_click(self, event: Click) -> None:
+        event.stop()
+
+    def action_toggle_button(self) -> None:
+        return
+
+    def toggle(self):
+        return self
 
 
 class CommandConfigDirectoryTree(DirectoryTree):
@@ -864,19 +889,46 @@ class SerialHubApp(App[None]):
             with Vertical(id="center-panel", classes="panel"):
                 with Horizontal(id="workspace-toolbar"):
                     with Vertical(id="workspace-connection-widget", classes="workspace-toolbar-widget"):
-                        with Horizontal(id="workspace-connection-row"):
-                            yield Static("Connection:", id="connection-status-label")
-                            yield ConnectionStatusLed(id="connection-status-led")
+                        yield Static("CONNECTION", id="connection-status-title")
+                        with Horizontal(id="workspace-status-indicators"):
+                            yield Static("LINK", classes="workspace-indicator-label")
+                            yield ConnectionStatusSwitch(id="connection-status-switch")
+                            yield Static("RX", classes="workspace-indicator-label workspace-indicator-label-rx")
+                            yield WorkspaceActivityIndicator(
+                                "",
+                                id="workspace-rx-activity",
+                                classes="workspace-activity workspace-activity-rx",
+                            )
+                            yield Static("TX", classes="workspace-indicator-label workspace-indicator-label-tx")
+                            yield WorkspaceActivityIndicator(
+                                "",
+                                id="workspace-tx-activity",
+                                classes="workspace-activity workspace-activity-tx",
+                            )
+
                     with Vertical(id="workspace-data-widget", classes="workspace-toolbar-widget"):
-                        with Horizontal(classes="workspace-data-row"):
-                            yield Static("RX", classes="workspace-data-label workspace-data-label-rx")
-                            yield Sparkline([0.0] * WORKSPACE_DATASTREAM_WINDOW, id="workspace-rx-sparkline")
-                        with Horizontal(classes="workspace-data-row"):
-                            yield Static("TX", classes="workspace-data-label workspace-data-label-tx")
-                            yield Sparkline([0.0] * WORKSPACE_DATASTREAM_WINDOW, id="workspace-tx-sparkline")
+                        yield Static("LINE ACTIVITY", id="workspace-data-title")
+                        yield Sparkline(
+                            [0.0] * WORKSPACE_DATASTREAM_WINDOW,
+                            id="workspace-io-sparkline",
+                            summary_function=_sparkline_signed_peak,
+                        )
+
                     with Vertical(id="workspace-toolbar-actions"):
-                        yield Button("Clear Console", id="clear-console-btn", variant="warning", disabled=True)
-                        yield Button("Close Tab", id="close-active-workspace", variant="error", disabled=True)
+                        yield Button(
+                            "Clear",
+                            id="clear-console-btn",
+                            variant="warning",
+                            classes="workspace-flat-button",
+                            disabled=True,
+                        )
+                        yield Button(
+                            "Close",
+                            id="close-active-workspace",
+                            variant="error",
+                            classes="workspace-flat-button",
+                            disabled=True,
+                        )
 
                 with TabbedContent(initial=self.WORKSPACE_PLACEHOLDER_ID, id="workspace-tabs"):
                     with TabPane("Workspace", id=self.WORKSPACE_PLACEHOLDER_ID):
@@ -1985,6 +2037,18 @@ class SerialHubApp(App[None]):
     def _empty_workspace_feed(self) -> list[float]:
         return [0.0] * WORKSPACE_DATASTREAM_WINDOW
 
+    def _combined_workspace_feed(self, session: DeviceSession) -> list[float]:
+        return [
+            rx_sample if rx_sample > 0 else (-tx_sample if tx_sample > 0 else 0.0)
+            for rx_sample, tx_sample in zip(
+                session.workspace_datastream.rx_samples,
+                session.workspace_datastream.tx_samples,
+            )
+        ]
+
+    def _line_has_recent_activity(self, samples: Sequence[float], window: int = 4) -> bool:
+        return any(value > 0 for value in samples[-window:])
+
     def _advance_workspace_datastreams(self) -> None:
         if self._shutting_down or not self.sessions:
             return
@@ -1996,28 +2060,32 @@ class SerialHubApp(App[None]):
 
     def _refresh_workspace_toolbar(self) -> None:
         try:
-            led = self._query_ui("#connection-status-led", ConnectionStatusLed)
-            rx_sparkline = self._query_ui("#workspace-rx-sparkline", Sparkline)
-            tx_sparkline = self._query_ui("#workspace-tx-sparkline", Sparkline)
+            connection_switch = self._query_ui("#connection-status-switch", ConnectionStatusSwitch)
+            rx_activity = self._query_ui("#workspace-rx-activity", WorkspaceActivityIndicator)
+            tx_activity = self._query_ui("#workspace-tx-activity", WorkspaceActivityIndicator)
+            sparkline = self._query_ui("#workspace-io-sparkline", Sparkline)
         except NoMatches:
             return
 
         if not self.active_device_id:
-            led.connected = False
-            rx_sparkline.data = self._empty_workspace_feed()
-            tx_sparkline.data = self._empty_workspace_feed()
+            connection_switch.value = False
+            rx_activity.value = False
+            tx_activity.value = False
+            sparkline.data = self._empty_workspace_feed()
             return
 
         session = self.sessions.get(self.active_device_id)
         if not session:
-            led.connected = False
-            rx_sparkline.data = self._empty_workspace_feed()
-            tx_sparkline.data = self._empty_workspace_feed()
+            connection_switch.value = False
+            rx_activity.value = False
+            tx_activity.value = False
+            sparkline.data = self._empty_workspace_feed()
             return
 
-        led.connected = self._is_device_connected(self.active_device_id)
-        rx_sparkline.data = list(session.workspace_datastream.rx_samples)
-        tx_sparkline.data = list(session.workspace_datastream.tx_samples)
+        connection_switch.value = self._is_device_connected(self.active_device_id)
+        rx_activity.value = self._line_has_recent_activity(session.workspace_datastream.rx_samples)
+        tx_activity.value = self._line_has_recent_activity(session.workspace_datastream.tx_samples)
+        sparkline.data = self._combined_workspace_feed(session)
 
     def _refresh_workspace_state(self, device_id: str) -> None:
         self._render_workspace_session(device_id, preserve_scroll=True)
@@ -2050,7 +2118,13 @@ class SerialHubApp(App[None]):
         self._refresh_logging_button()
 
     def _sync_active_device_from_workspace(self) -> None:
-        tabs = self._query_ui("#workspace-tabs", TabbedContent)
+        if self._shutting_down:
+            return
+        try:
+            tabs = self._query_ui("#workspace-tabs", TabbedContent)
+        except NoMatches:
+            self.active_device_id = None
+            return
         self.active_device_id = self._workspace_devices_by_pane.get(tabs.active)
         self._update_workspace_summary()
         self._refresh_logging_button()
