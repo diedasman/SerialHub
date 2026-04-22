@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [Unreleased] - 2026-04-22
+
+### Added
+
+- Added a connection-status LED widget to the workspace toolbar that lights up for the active connected workspace.
+- Added live RX/TX sparkline widgets to the workspace toolbar, backed by a session datastream model that the UI can query directly.
+- Added regression coverage for the moved workspace status block and the new toolbar LED/sparkline behavior.
+
+### Changed
+
+- Moved the workspace status container to the bottom of the center panel while keeping it inside the panel border and full-width with the workspace content.
+- Reworked the workspace toolbar layout to host the new connection and live data widgets alongside the existing workspace actions.
+
 ## [Unreleased] - 2026-04-21
 
 ### Added

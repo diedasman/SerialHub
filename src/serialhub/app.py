@@ -10,6 +10,7 @@ from textual.app import App, ComposeResult  # type: ignore
 from textual.binding import Binding  # type: ignore
 from textual.containers import Horizontal, Vertical, VerticalScroll  # type: ignore
 from textual.css.query import NoMatches  # type: ignore
+from textual.reactive import reactive  # type: ignore
 from textual.screen import ModalScreen, Screen  # type: ignore
 from textual.widget import Widget  # type: ignore
 from textual.widgets import (  # type: ignore
@@ -20,6 +21,7 @@ from textual.widgets import (  # type: ignore
     Input,
     RichLog,
     Select,
+    Sparkline,
     Static,
     TabbedContent,
     TabPane,
@@ -28,7 +30,7 @@ from textual.widgets import (  # type: ignore
 from serialhub.config import get_data_dir, get_logs_dir
 from serialhub.core.device_manager import DeviceManager
 from serialhub.core.models import DeviceInfo, DeviceTransport, SerialConfig, SerialEvent, TcpConfig
-from serialhub.core.session import DeviceSession
+from serialhub.core.session import DeviceSession, WORKSPACE_DATASTREAM_WINDOW
 from serialhub.logging.paths import resolve_log_destination
 from serialhub.logging.session_logger import SessionLogger
 from serialhub.protocols import AsciiBinaryDecoder
@@ -78,6 +80,7 @@ _INPUT_HISTORY_FALLBACK_FILENAMES = {
 
 _CONFIG_COMMAND_SEPARATOR = " / "
 _NEW_CONFIG_DOCUMENT_KEY = "__new__"
+_WORKSPACE_IDLE_TICK_SECONDS = 0.75
 
 
 def load_ascii_logo() -> str:
@@ -143,6 +146,19 @@ class HistoryInput(Input):
         app = getattr(self, "app", None)
         if app is not None and hasattr(app, "_navigate_input_history"):
             app._navigate_input_history(self.history_id, 1)
+
+
+class ConnectionStatusLed(Static):
+    connected = reactive(False)
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(" ", *args, **kwargs)
+
+    def watch_connected(self, connected: bool) -> None:
+        if connected:
+            self.add_class("connected")
+            return
+        self.remove_class("connected")
 
 
 class CommandConfigDirectoryTree(DirectoryTree):
@@ -847,11 +863,20 @@ class SerialHubApp(App[None]):
 
             with Vertical(id="center-panel", classes="panel"):
                 with Horizontal(id="workspace-toolbar"):
-                    with Vertical(id="workspace-status"):
-                        yield Static("No device workspaces open.", id="workspace-selection", classes="hint")
-                        yield Static("No user.", id="current-user-summary", classes="hint")
-                    yield Button("Clear Console", id="clear-console-btn", variant="warning", disabled=True)
-                    yield Button("Close Tab", id="close-active-workspace", variant="error", disabled=True)
+                    with Vertical(id="workspace-connection-widget", classes="workspace-toolbar-widget"):
+                        with Horizontal(id="workspace-connection-row"):
+                            yield Static("Connection:", id="connection-status-label")
+                            yield ConnectionStatusLed(id="connection-status-led")
+                    with Vertical(id="workspace-data-widget", classes="workspace-toolbar-widget"):
+                        with Horizontal(classes="workspace-data-row"):
+                            yield Static("RX", classes="workspace-data-label workspace-data-label-rx")
+                            yield Sparkline([0.0] * WORKSPACE_DATASTREAM_WINDOW, id="workspace-rx-sparkline")
+                        with Horizontal(classes="workspace-data-row"):
+                            yield Static("TX", classes="workspace-data-label workspace-data-label-tx")
+                            yield Sparkline([0.0] * WORKSPACE_DATASTREAM_WINDOW, id="workspace-tx-sparkline")
+                    with Vertical(id="workspace-toolbar-actions"):
+                        yield Button("Clear Console", id="clear-console-btn", variant="warning", disabled=True)
+                        yield Button("Close Tab", id="close-active-workspace", variant="error", disabled=True)
 
                 with TabbedContent(initial=self.WORKSPACE_PLACEHOLDER_ID, id="workspace-tabs"):
                     with TabPane("Workspace", id=self.WORKSPACE_PLACEHOLDER_ID):
@@ -889,6 +914,10 @@ class SerialHubApp(App[None]):
                     yield Input(placeholder="Log folder or .txt path", id="log-filepath")
                     yield Button("Start Logging", id="toggle-logging")
 
+                with Vertical(id="workspace-status"):
+                    yield Static("No device workspaces open.", id="workspace-selection", classes="hint")
+                    yield Static("No user.", id="current-user-summary", classes="hint")
+
             with Vertical(id="right-panel", classes="panel"):
                 with Horizontal(id="right-panel-header"):
                     yield Static("", id="right-panel-spacer")
@@ -911,6 +940,7 @@ class SerialHubApp(App[None]):
         self._sync_active_device_from_workspace()
         self._refresh_logging_button()
         self._refresh_user_dependent_ui()
+        self.set_interval(_WORKSPACE_IDLE_TICK_SECONDS, self._advance_workspace_datastreams)
 
         if self.current_user:
             self._activate_user_profile(self.current_user, remember=None, show_notification=False)
@@ -1799,6 +1829,7 @@ class SerialHubApp(App[None]):
             return
 
         session.add_raw_event(event)
+        session.workspace_datastream.record_event(event)
 
         if session.logger and session.logger.is_running:
             session.logger.log_event(event)
@@ -1951,6 +1982,43 @@ class SerialHubApp(App[None]):
         for line in self._render_raw_event_lines(session, event):
             raw_log.write(line, scroll_end=follow_stream)
 
+    def _empty_workspace_feed(self) -> list[float]:
+        return [0.0] * WORKSPACE_DATASTREAM_WINDOW
+
+    def _advance_workspace_datastreams(self) -> None:
+        if self._shutting_down or not self.sessions:
+            return
+
+        for session in self.sessions.values():
+            session.workspace_datastream.tick()
+
+        self._refresh_workspace_toolbar()
+
+    def _refresh_workspace_toolbar(self) -> None:
+        try:
+            led = self._query_ui("#connection-status-led", ConnectionStatusLed)
+            rx_sparkline = self._query_ui("#workspace-rx-sparkline", Sparkline)
+            tx_sparkline = self._query_ui("#workspace-tx-sparkline", Sparkline)
+        except NoMatches:
+            return
+
+        if not self.active_device_id:
+            led.connected = False
+            rx_sparkline.data = self._empty_workspace_feed()
+            tx_sparkline.data = self._empty_workspace_feed()
+            return
+
+        session = self.sessions.get(self.active_device_id)
+        if not session:
+            led.connected = False
+            rx_sparkline.data = self._empty_workspace_feed()
+            tx_sparkline.data = self._empty_workspace_feed()
+            return
+
+        led.connected = self._is_device_connected(self.active_device_id)
+        rx_sparkline.data = list(session.workspace_datastream.rx_samples)
+        tx_sparkline.data = list(session.workspace_datastream.tx_samples)
+
     def _refresh_workspace_state(self, device_id: str) -> None:
         self._render_workspace_session(device_id, preserve_scroll=True)
         self._update_workspace_tab_label(device_id)
@@ -1988,19 +2056,24 @@ class SerialHubApp(App[None]):
         self._refresh_logging_button()
 
     def _update_workspace_summary(self) -> None:
-        summary = self._query_ui("#workspace-selection", Static)
-        clear_button = self._query_ui("#clear-console-btn", Button)
-        close_button = self._query_ui("#close-active-workspace", Button)
+        try:
+            summary = self._query_ui("#workspace-selection", Static)
+            clear_button = self._query_ui("#clear-console-btn", Button)
+            close_button = self._query_ui("#close-active-workspace", Button)
+        except NoMatches:
+            return
         if not self.active_device_id:
             summary.update("No device workspaces open.")
             clear_button.disabled = True
             close_button.disabled = True
+            self._refresh_workspace_toolbar()
             return
 
         state = "connected" if self._is_device_connected(self.active_device_id) else "saved"
         summary.update(f"Active workspace: {self.active_device_id} ({state})")
         clear_button.disabled = False
         close_button.disabled = False
+        self._refresh_workspace_toolbar()
 
     def _remove_workspace_placeholder(self) -> None:
         if not self._workspace_placeholder_visible:

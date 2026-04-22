@@ -2,9 +2,9 @@ import asyncio
 import json
 from types import SimpleNamespace
 
-from textual.widgets import Button, Input, Select, Static, TabbedContent
+from textual.widgets import Button, Input, Select, Sparkline, Static, TabbedContent
 
-from serialhub.app import ConfigEditorScreen, SerialHubApp
+from serialhub.app import ConfigEditorScreen, ConnectionStatusLed, SerialHubApp
 from serialhub.config import ENV_DATA_DIR
 from serialhub.core.models import DeviceInfo, SerialEvent
 from serialhub.user_profiles import (
@@ -13,6 +13,10 @@ from serialhub.user_profiles import (
     get_user_tcp_ip_history_path,
     get_user_tcp_port_history_path,
 )
+
+
+def static_text(widget: Static) -> str:
+    return str(getattr(widget, "renderable", getattr(widget, "_content", "")))
 
 
 class FakeDeviceManager:
@@ -75,7 +79,7 @@ def test_config_editor_button_opens_and_closes_screen(monkeypatch, tmp_path) -> 
             assert isinstance(app.screen, ConfigEditorScreen)
 
             preview = app.screen.query_one("#config-editor-preview", Static)
-            assert str(preview.renderable) == ""
+            assert static_text(preview) == ""
             assert app.screen.query_one("#config-save", Button).disabled is True
 
             app.screen.action_close_config_editor()
@@ -125,7 +129,7 @@ def test_config_editor_loads_focused_file_into_structured_form(monkeypatch, tmp_
             assert app.screen.query_one("#config-command-value-2", Input).value == "set time + % &\\r\\n"
 
             preview = app.screen.query_one("#config-editor-preview", Static)
-            assert '"TIME": "set time + % &\\r\\n"' in str(preview.renderable)
+            assert '"TIME": "set time + % &\\r\\n"' in static_text(preview)
 
     asyncio.run(scenario())
 
@@ -164,8 +168,8 @@ def test_config_editor_new_flow_adds_command_rows_and_saves_form_data(monkeypatc
             await pilot.pause()
 
             preview = app.screen.query_one("#config-editor-preview", Static)
-            assert '"SET"' in str(preview.renderable)
-            assert '"STATUS": "get status + 100% & ok\\r\\n"' in str(preview.renderable)
+            assert '"SET"' in static_text(preview)
+            assert '"STATUS": "get status + 100% & ok\\r\\n"' in static_text(preview)
             editor_region = app.screen.query_one("#config-command-editor").region
             row_1_region = app.screen.query_one("#config-command-row-1").region
             row_2_region = app.screen.query_one("#config-command-row-2").region
@@ -383,7 +387,7 @@ def test_disconnect_preserves_workspace_until_close() -> None:
 
             assert "COM1" in app.sessions
             assert app.active_device_id == "COM1"
-            assert str(app.query_one("#workspace-selection").renderable) == "Active workspace: COM1 (saved)"
+            assert static_text(app.query_one("#workspace-selection", Static)) == "Active workspace: COM1 (saved)"
             assert app.query_one("#close-active-workspace", Button).disabled is False
 
             app._close_workspace_for_device("COM1")
@@ -391,7 +395,7 @@ def test_disconnect_preserves_workspace_until_close() -> None:
 
             assert "COM1" not in app.sessions
             assert app.active_device_id is None
-            assert str(app.query_one("#workspace-selection").renderable) == "No device workspaces open."
+            assert static_text(app.query_one("#workspace-selection", Static)) == "No device workspaces open."
             assert app.query_one("#close-active-workspace", Button).disabled is True
 
     asyncio.run(scenario())
@@ -437,6 +441,7 @@ def test_workspace_log_scroll_does_not_jump_when_user_is_reading_history() -> No
             raw_log = app._workspace_logs["COM1"]
             raw_log.auto_scroll = False
             raw_log.scroll_to(y=0, animate=False, immediate=True, force=True)
+            await pilot.pause()
             await pilot.pause()
             assert raw_log.scroll_y == 0
 
@@ -541,6 +546,81 @@ def test_current_user_summary_is_positioned_below_workspace_selection(monkeypatc
     asyncio.run(scenario())
 
 
+def test_workspace_status_container_sits_at_bottom_of_center_panel(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
+    profile = create_user_profile("alice")
+
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False, startup_user=profile)
+        app.device_manager = FakeDeviceManager()
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            center_panel = app.query_one("#center-panel")
+            workspace_tabs = app.query_one("#workspace-tabs")
+            function_row = app.query_one("#function-buttons-row")
+            status = app.query_one("#workspace-status")
+            assert status.region.y > function_row.region.y
+            assert status.region.bottom <= center_panel.region.bottom
+            assert abs(status.region.x - workspace_tabs.region.x) <= 2
+            assert abs(status.region.width - workspace_tabs.region.width) <= 2
+
+    asyncio.run(scenario())
+
+
+def test_connection_led_reflects_active_workspace_connection_state() -> None:
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False)
+        app.device_manager = FakeDeviceManager()
+
+        async with app.run_test() as pilot:
+            led = app.query_one("#connection-status-led", ConnectionStatusLed)
+            assert led.connected is False
+
+            app._connect_selected_device()
+            await pilot.pause()
+            assert led.connected is True
+
+            app._disconnect_device("COM1")
+            await pilot.pause()
+            assert led.connected is False
+
+    asyncio.run(scenario())
+
+
+def test_workspace_sparklines_follow_rx_tx_activity_and_flatten_when_idle() -> None:
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False)
+        app.device_manager = FakeDeviceManager()
+
+        async with app.run_test() as pilot:
+            rx_sparkline = app.query_one("#workspace-rx-sparkline", Sparkline)
+            tx_sparkline = app.query_one("#workspace-tx-sparkline", Sparkline)
+            assert all(value == 0.0 for value in list(rx_sparkline.data or []))
+            assert all(value == 0.0 for value in list(tx_sparkline.data or []))
+
+            app._connect_selected_device()
+            app._handle_serial_event_ui(
+                SerialEvent(device_id="COM1", port="COM1", direction="RX", payload=b"hello")
+            )
+            app._handle_serial_event_ui(
+                SerialEvent(device_id="COM1", port="COM1", direction="TX", payload=b"ok")
+            )
+            await pilot.pause()
+
+            assert max(list(rx_sparkline.data or [0.0])) >= 5.0
+            assert max(list(tx_sparkline.data or [0.0])) >= 2.0
+
+            for _ in range(40):
+                app._advance_workspace_datastreams()
+            await pilot.pause()
+
+            assert all(value == 0.0 for value in list(rx_sparkline.data or []))
+            assert all(value == 0.0 for value in list(tx_sparkline.data or []))
+
+    asyncio.run(scenario())
+
+
 def test_device_select_is_blank_when_no_devices_are_found() -> None:
     async def scenario() -> None:
         app = SerialHubApp(require_login=False)
@@ -574,7 +654,7 @@ def test_tcp_tab_connects_workspace_from_ip_and_port() -> None:
             assert app.sessions["192.168.0.10:4059"].transport == "tcp"
             assert app.active_device_id == "192.168.0.10:4059"
             assert "192.168.0.10:4059" in app._workspace_logs
-            assert str(app.query_one("#workspace-selection").renderable) == (
+            assert static_text(app.query_one("#workspace-selection", Static)) == (
                 "Active workspace: 192.168.0.10:4059 (connected)"
             )
 
@@ -648,7 +728,7 @@ def test_tcp_disconnect_preserves_workspace_until_closed() -> None:
 
             assert "192.168.0.10:4059" in app.sessions
             assert app.active_device_id == "192.168.0.10:4059"
-            assert str(app.query_one("#workspace-selection").renderable) == (
+            assert static_text(app.query_one("#workspace-selection", Static)) == (
                 "Active workspace: 192.168.0.10:4059 (saved)"
             )
 

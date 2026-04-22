@@ -1,7 +1,7 @@
 import asyncio
 import json
 
-from textual.widgets import Input
+from textual.widgets import Input, Static
 
 from serialhub.app import SerialHubApp, UserLoginScreen
 from serialhub.config import ENV_DATA_DIR
@@ -23,6 +23,10 @@ from serialhub.user_profiles import (
     set_remembered_username,
     unescape_command_value_from_editor,
 )
+
+
+def static_text(widget: Static) -> str:
+    return str(getattr(widget, "renderable", getattr(widget, "_content", "")))
 
 
 def test_create_user_profile_creates_expected_local_files(monkeypatch, tmp_path) -> None:
@@ -167,7 +171,7 @@ def test_login_screen_creates_user_and_updates_main_ui(monkeypatch, tmp_path) ->
             assert app.current_user is not None
             assert app.current_user.username == "alice"
             assert get_user_profile_path("alice").exists()
-            assert str(app.query_one("#current-user-summary").renderable) == "user: alice"
+            assert static_text(app.query_one("#current-user-summary", Static)) == "user: alice"
 
     asyncio.run(scenario())
 
