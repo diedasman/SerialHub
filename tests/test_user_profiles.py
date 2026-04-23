@@ -7,6 +7,7 @@ from serialhub.app import SerialHubApp, UserLoginScreen
 from serialhub.config import ENV_DATA_DIR
 from serialhub.user_profiles import (
     create_user_profile,
+    delete_command_config_document,
     escape_command_value_for_editor,
     get_remembered_username,
     get_user_command_config_path,
@@ -22,11 +23,24 @@ from serialhub.user_profiles import (
     save_command_config_document,
     set_remembered_username,
     unescape_command_value_from_editor,
+    upsert_tcp_favorite,
 )
 
 
 def static_text(widget: Static) -> str:
-    return str(getattr(widget, "renderable", getattr(widget, "_content", "")))
+    renderable = getattr(widget, "renderable", None)
+    if renderable is not None:
+        return str(renderable)
+    try:
+        return str(widget.render())
+    except Exception:
+        return str(
+            getattr(
+                widget,
+                "_content",
+                getattr(widget, "_Static__content", ""),
+            )
+        )
 
 
 def test_create_user_profile_creates_expected_local_files(monkeypatch, tmp_path) -> None:
@@ -35,6 +49,7 @@ def test_create_user_profile_creates_expected_local_files(monkeypatch, tmp_path)
     profile = create_user_profile("alice")
 
     assert profile.username == "alice"
+    assert profile.startup_command_config == ""
     assert profile.command_configs == ["alice_cmds", "blank"]
     assert get_user_profile_path("alice").exists()
     assert get_user_command_configs_dir("alice").exists()
@@ -105,6 +120,7 @@ def test_load_command_configs_migrates_legacy_root_files(monkeypatch, tmp_path) 
 def test_save_command_config_document_renames_file_and_updates_profile(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
     profile = create_user_profile("alice")
+    profile.startup_command_config = "alice_cmds"
     original_path = get_user_command_config_path("alice", "alice_cmds")
 
     saved_path = save_command_config_document(
@@ -127,9 +143,40 @@ def test_save_command_config_document_renames_file_and_updates_profile(monkeypat
     assert reloaded_profile is not None
     assert "custom buttons" in reloaded_profile.command_configs
     assert "alice_cmds" not in reloaded_profile.command_configs
+    assert reloaded_profile.startup_command_config == "custom buttons"
 
     payload = load_command_config_document(saved_path)
     assert payload["COMMANDS"]["PING"] == "ping\r\n"
+
+
+def test_delete_command_config_document_removes_file_and_profile_reference(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
+    profile = create_user_profile("alice")
+    profile.startup_command_config = "alice_cmds"
+    command_path = get_user_command_config_path("alice", "alice_cmds")
+
+    delete_command_config_document(profile, command_path)
+
+    assert command_path.exists() is False
+
+    reloaded_profile = load_user_profile("alice")
+    assert reloaded_profile is not None
+    assert reloaded_profile.command_configs == ["blank"]
+    assert reloaded_profile.startup_command_config == ""
+
+
+def test_upsert_tcp_favorite_deduplicates_and_persists(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
+    profile = create_user_profile("alice")
+
+    assert upsert_tcp_favorite(profile, "10.0.0.1", 4059) is True
+    assert upsert_tcp_favorite(profile, "10.0.0.1", 4059) is False
+
+    reloaded_profile = load_user_profile("alice")
+    assert reloaded_profile is not None
+    assert len(reloaded_profile.tcp_favorites) == 1
+    assert reloaded_profile.tcp_favorites[0].host == "10.0.0.1"
+    assert reloaded_profile.tcp_favorites[0].port == 4059
 
 
 def test_command_value_editor_escape_round_trip() -> None:
@@ -166,6 +213,7 @@ def test_login_screen_creates_user_and_updates_main_ui(monkeypatch, tmp_path) ->
             login_input.value = "alice"
 
             await pilot.click("#login-new-user")
+            await pilot.pause()
             await pilot.pause()
 
             assert app.current_user is not None

@@ -9,6 +9,7 @@ Screen {
 
 .panel {
     border: heavy $primary;
+    border-title-align: center;
     background: $background;
     padding: 0 1;
     margin: 0 1;
@@ -65,147 +66,178 @@ TabPane {
     layout: horizontal;
     height: auto;
     margin-top: 0;
-    margin-bottom: 1;
+    # margin-bottom: 1;
 }
 
 .workspace-toolbar-widget {
-    height: auto;
+    height: 5;
     border: round $secondary;
     padding: 0 1;
     margin-right: 1;
 }
 
-#workspace-connection-widget {
-    width: 24;
-    min-width: 24;
+.workspace-toolbar-widget-buttons {
+    height: auto;
+    border: round $secondary;
+    padding: 0 0;
+    margin-right: 1;
+    # margin-top: 1;
 }
 
-#connection-status-title,
-#workspace-data-title {
+#workspace-connection-widget {
+    width: 16;
+    # min-width: 24;
+}
+
+#connection-status-row {
+    layout: horizontal;
     height: auto;
-    width: 1fr;
+    width: auto;
+    content-align: left middle;
+}
+
+#connection-status-title {
+    height: auto;
+    width: auto;
     color: $secondary;
     text-style: bold;
+    margin-right: 1;
+}
+
+#connection-status-title.-on {
+    color: $success;
+}
+
+#connection-status-title.-off {
+    color: $panel-lighten-1;
 }
 
 #workspace-status-indicators {
-    height: auto;
+    height: 1;
     width: auto;
+    content-align: left middle;
+    margin-top: 0;
 }
 
 .workspace-indicator-label {
     width: auto;
-    color: $accent;
-    margin-right: 0;
-}
-
-.workspace-indicator-label-rx {
-    color: $warning;
-}
-
-.workspace-indicator-label-tx {
-    color: $success;
-}
-
-#connection-status-switch {
-    width: 4;
-    min-width: 4;
-    border: none;
-    background: transparent;
-    padding: 0 0;
+    color: $secondary;
     margin-right: 1;
 }
 
-#connection-status-switch > .switch--slider {
-    color: $panel;
-    background: $surface-darken-1;
+#workspace-rx-label.-on {
+    color: $error;
 }
 
-#connection-status-switch.-on > .switch--slider {
+#workspace-tx-label.-on {
     color: $success;
-    background: $success-darken-3;
+}
+
+#workspace-rx-label.-off,
+#workspace-tx-label.-off {
+    color: $secondary;
+}
+
+#connection-status-led,
+.workspace-activity {
+    width: auto;
+    min-width: 1;
+    content-align: left middle;
+    padding: 0;
+    margin-left: 0;
+    text-style: bold;
+}
+
+#connection-status-rule {
+    height: 1;
+    margin: 0;
+    color: $panel-lighten-1;
+}
+
+#connection-status-led,
+#workspace-rx-activity {
+    margin-right: 4;
+}
+
+#connection-status-led.-on {
+    color: $success;
+}
+
+#connection-status-led.-off,
+.workspace-activity.-off {
+    color: $panel-lighten-1;
 }
 
 #workspace-data-widget {
     width: 1fr;
-    min-width: 6;
+    height: 5;
 }
 
 .workspace-activity {
     height: auto;
-    width: auto;
-    min-width: 1;
-    border: none;
-    background: transparent;
-    padding: 0;
     margin-right: 1;
 }
 
-.workspace-activity > .toggle--button {
-    color: $panel;
-    background: transparent;
+#workspace-rx-activity.-on {
+    color: $error;
 }
 
-.workspace-activity.-on > .toggle--button {
-    background: transparent;
-}
-
-.workspace-activity-rx.-on > .toggle--button {
-    color: $warning;
-}
-
-.workspace-activity-tx.-on > .toggle--button {
+#workspace-tx-activity.-on {
     color: $success;
 }
 
 #workspace-io-sparkline {
     width: 1fr;
-}
-
-#workspace-io-sparkline > .sparkline--max-color {
-    color: $warning;
-}
-
-#workspace-io-sparkline > .sparkline--min-color {
-    color: $success 30%;
-}
-
-#workspace-toolbar-actions {
-    width: 8;
-    height: auto;
-}
-
-.workspace-flat-button {
-    min-width: 0;
-    width: 1fr;
     height: 3;
-    padding: 0 0;
-    border: none;
-    background: $surface 12%;
-    content-align: center middle;
 }
 
-.workspace-flat-button.-warning {
+#workspace-io-sparkline.-idle > .sparkline--max-color,
+#workspace-io-sparkline.-idle > .sparkline--min-color {
     color: $warning;
 }
 
-.workspace-flat-button.-error {
+#workspace-io-sparkline.-rx-only > .sparkline--max-color,
+#workspace-io-sparkline.-duplex > .sparkline--max-color {
     color: $error;
 }
 
-.workspace-flat-button:hover,
-.workspace-flat-button:focus {
-    background: $surface 40%;
+#workspace-io-sparkline.-tx-only > .sparkline--max-color {
+    color: $warning;
 }
 
-.workspace-flat-button:disabled {
-    background: $surface 6%;
-    color: $panel-lighten-1;
-    text-opacity: 0.7;
+#workspace-io-sparkline.-tx-only > .sparkline--min-color,
+#workspace-io-sparkline.-duplex > .sparkline--min-color {
+    color: $success;
 }
 
-#clear-console-btn {
-    margin-bottom: 0;
+#workspace-io-sparkline.-rx-only > .sparkline--min-color {
+    color: $warning;
+}
+
+#workspace-toolbar-actions {
+    layout: horizontal;
+    width: 28;
+    height: 4;
+    content-align: left top;
+}
+
+#workspace-toolbar-buttons {
+    layout: horizontal;
+    height: auto;
+    width: 28;
+    # content-align: left top;
+    margin-top: 1;
+    # padding: 0 1;
+}
+
+#clear-console-btn,
+#close-active-workspace {
+    min-width: 7;
+    width: 1fr;
+    height: 3;
+    padding: 0;
+    content-align: center top;
+    margin: 0;
 }
 
 #tx-row {
@@ -223,6 +255,7 @@ TabPane {
 }
 
 #workspace-status {
+    layout: horizontal;
     width: 1fr;
     height: auto;
     border: round $accent;
@@ -248,6 +281,15 @@ TabPane {
 #function-buttons-row {
     layout: horizontal;
     height: auto;
+    margin-top: 1;
+    margin-bottom: 1;
+    # width: 2fr;
+}
+
+#timestamp-checkbox {
+    width: auto;
+    margin-right: 1;
+    margin-top: 0;
 }
 
 #command-config-select {
@@ -260,12 +302,6 @@ TabPane {
     border: solid $secondary;
     background: $background;
     # padding: 0 1;
-}
-
-#timestamp-checkbox {
-    width: auto;
-    margin-right: 1;
-    margin-top: 0;
 }
 
 .workspace-pane {
@@ -336,7 +372,7 @@ TabPane {
     margin-top: 0;
     margin-bottom: 0;
     margin-right: 1;
-    width: 58%;
+    width: 1fr;
 }
 
 #toggle-logging {
@@ -399,6 +435,16 @@ TabPane {
     margin-bottom: 1;
 }
 
+#tcp-favorites-btn {
+    width: 1fr;
+    margin-bottom: 1;
+}
+
+#tcp-favorites-list {
+    width: 1fr;
+    margin-bottom: 1;
+}
+
 .hint {
     color: $accent;
     margin-bottom: 1;
@@ -411,9 +457,15 @@ TabPane {
 #config-browser-actions {
     height: auto;
     margin-bottom: 1;
+    margin-top: 1;
 }
 
 #config-new {
+    width: 1fr;
+    # margin-top: 1;
+}
+
+#config-delete {
     width: 1fr;
 }
 
@@ -521,18 +573,24 @@ TabPane {
     layout: horizontal;
     height: auto;
     margin-bottom: 1;
-    # padding: 0 1;
+    margin-top: 1;
+    width: 1fr;
+    content-align: center middle;
 }
 
-#right-panel-spacer {
+#config-editor-btn,
+#user-settings-btn {
     width: 1fr;
+    height: auto;
+    margin-left: 0;
 }
 
 #config-editor-btn {
-    width: auto;
-    height: auto;
+    margin-right: 1;
+}
+
+#user-settings-btn {
     margin-right: 0;
-    margin-left: 1;
 }
 
 #footer-row {
@@ -541,6 +599,12 @@ TabPane {
 }
 
 #app-footer {
+    width: 1fr;
+    background: $background;
+    color: $foreground;
+}
+
+#login-footer {
     width: 1fr;
     background: $background;
     color: $foreground;

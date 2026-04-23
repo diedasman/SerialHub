@@ -8,6 +8,7 @@ from serialhub.app import (
     ConfigEditorScreen,
     ConnectionStatusSwitch,
     SerialHubApp,
+    UserSettingsScreen,
     WorkspaceActivityIndicator,
 )
 from serialhub.config import ENV_DATA_DIR
@@ -17,6 +18,8 @@ from serialhub.user_profiles import (
     get_user_command_config_path,
     get_user_tcp_ip_history_path,
     get_user_tcp_port_history_path,
+    load_user_profile,
+    upsert_tcp_favorite,
 )
 
 
@@ -102,6 +105,28 @@ def test_config_editor_button_opens_and_closes_screen(monkeypatch, tmp_path) -> 
             app.screen.action_close_config_editor()
             await pilot.pause()
             assert not isinstance(app.screen, ConfigEditorScreen)
+
+    asyncio.run(scenario())
+
+
+def test_user_settings_button_opens_and_closes_screen(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
+    profile = create_user_profile("alice")
+
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False, startup_user=profile)
+        app.device_manager = FakeDeviceManager()
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            app.query_one("#user-settings-btn", Button).press()
+            await pilot.pause()
+            assert isinstance(app.screen, UserSettingsScreen)
+
+            app.screen.action_close_settings()
+            await pilot.pause()
+            assert not isinstance(app.screen, UserSettingsScreen)
 
     asyncio.run(scenario())
 
@@ -266,6 +291,40 @@ def test_config_editor_delete_button_removes_command_row(monkeypatch, tmp_path) 
     asyncio.run(scenario())
 
 
+def test_config_editor_delete_button_removes_selected_file_after_confirmation(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
+    profile = create_user_profile("alice")
+    command_path = get_user_command_config_path("alice", "alice_cmds")
+
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False, startup_user=profile)
+        app.device_manager = FakeDeviceManager()
+
+        async with app.run_test() as pilot:
+            await pilot.click("#config-editor-btn")
+            await pilot.pause()
+
+            assert isinstance(app.screen, ConfigEditorScreen)
+            app.screen._display_document_for_path(command_path)
+            await pilot.pause()
+            await pilot.pause()
+
+            await pilot.click("#config-delete")
+            await pilot.pause()
+
+            assert "alice_cmds.json" in static_text(app.screen.query_one("#config-delete-message", Static))
+
+            await pilot.click("#config-delete-yes")
+            await pilot.pause()
+            await pilot.pause()
+
+            assert isinstance(app.screen, ConfigEditorScreen)
+            assert command_path.exists() is False
+            assert "alice_cmds" not in app.current_user.command_configs
+
+    asyncio.run(scenario())
+
+
 def test_config_editor_resets_input_view_when_loading_new_values(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
     profile = create_user_profile("alice")
@@ -409,7 +468,9 @@ def test_disconnect_preserves_workspace_until_close() -> None:
 
             assert "COM1" in app.sessions
             assert app.active_device_id == "COM1"
-            assert static_text(app.query_one("#workspace-selection", Static)) == "Active workspace: COM1 (saved)"
+            assert static_text(app.query_one("#workspace-selection", Static)) == (
+                "Active workspace: COM1 (saved)"
+            )
             assert app.query_one("#close-active-workspace", Button).disabled is False
 
             app._close_workspace_for_device("COM1")
@@ -525,6 +586,79 @@ def test_command_config_select_is_blank_without_user() -> None:
             assert select.is_blank() is True
             assert select.disabled is True
             assert app.query_one("#config-editor-btn", Button).disabled is True
+            assert app.query_one("#user-settings-btn", Button).disabled is True
+
+    asyncio.run(scenario())
+
+
+def test_command_config_select_stays_blank_for_signed_in_user_until_the_user_picks_one(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
+    profile = create_user_profile("alice")
+
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False, startup_user=profile)
+        app.device_manager = FakeDeviceManager()
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            select = app.query_one("#command-config-select", Select)
+            assert select.disabled is False
+            assert select.is_blank() is True
+
+    asyncio.run(scenario())
+
+
+def test_user_settings_save_persists_startup_command_theme_and_log_folder(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
+    profile = create_user_profile("alice")
+    custom_logs = tmp_path / "custom-logs"
+    custom_logs.mkdir()
+
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False, startup_user=profile)
+        app.device_manager = FakeDeviceManager()
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            app.query_one("#user-settings-btn", Button).press()
+            await pilot.pause()
+            assert isinstance(app.screen, UserSettingsScreen)
+
+            app.screen.query_one("#settings-startup-command", Select).value = "alice_cmds"
+            app.screen.query_one("#settings-theme", Select).value = "light"
+            app.screen.query_one("#settings-log-folder", Input).value = str(custom_logs)
+            await pilot.pause()
+
+            app.screen.query_one("#settings-save", Button).press()
+            await pilot.pause()
+            await pilot.pause()
+
+            assert not isinstance(app.screen, UserSettingsScreen)
+            assert app.theme_mode == "light"
+            assert app.theme == "app-light"
+            assert app.query_one("#log-filepath", Input).value == str(custom_logs)
+            assert app.query_one("#command-config-select", Select).value == "alice_cmds"
+
+            reloaded_profile = load_user_profile("alice")
+            assert reloaded_profile is not None
+            assert reloaded_profile.startup_command_config == "alice_cmds"
+            assert reloaded_profile.theme == "app-light"
+            assert reloaded_profile.log_folder == str(custom_logs)
+
+        reloaded_profile = load_user_profile("alice")
+        assert reloaded_profile is not None
+
+        reopened_app = SerialHubApp(require_login=False, startup_user=reloaded_profile)
+        reopened_app.device_manager = FakeDeviceManager()
+        async with reopened_app.run_test() as reopened_pilot:
+            await reopened_pilot.pause()
+            assert reopened_app.query_one("#command-config-select", Select).value == "alice_cmds"
+            assert reopened_app.theme_mode == "light"
+            assert reopened_app.query_one("#log-filepath", Input).value == str(custom_logs)
 
     asyncio.run(scenario())
 
@@ -596,11 +730,11 @@ def test_connection_switch_reflects_active_workspace_connection_state() -> None:
         app.device_manager = FakeDeviceManager()
 
         async with app.run_test() as pilot:
-            connection_switch = app.query_one("#connection-status-switch", ConnectionStatusSwitch)
+            connection_switch = app.query_one("#connection-status-led", ConnectionStatusSwitch)
             assert connection_switch.value is False
             assert connection_switch.can_focus is False
 
-            await pilot.click("#connection-status-switch")
+            await pilot.click("#connection-status-led")
             await pilot.pause()
             assert connection_switch.value is False
 
@@ -608,7 +742,7 @@ def test_connection_switch_reflects_active_workspace_connection_state() -> None:
             await pilot.pause()
             assert connection_switch.value is True
 
-            await pilot.click("#connection-status-switch")
+            await pilot.click("#connection-status-led")
             await pilot.pause()
             assert connection_switch.value is True
 
@@ -619,16 +753,30 @@ def test_connection_switch_reflects_active_workspace_connection_state() -> None:
     asyncio.run(scenario())
 
 
-def test_workspace_activity_indicators_and_combined_sparkline_follow_rx_tx_activity_and_flatten_when_idle() -> None:
+def test_workspace_activity_indicators_and_combined_sparkline_follow_rx_tx_activity_and_flatten_when_idle(
+) -> None:
     async def scenario() -> None:
         app = SerialHubApp(require_login=False)
         app.device_manager = FakeDeviceManager()
 
         async with app.run_test() as pilot:
+            connection_widget = app.query_one("#workspace-connection-widget")
+            rule = app.query_one("#connection-status-rule")
+            data_widget = app.query_one("#workspace-data-widget")
             sparkline = app.query_one("#workspace-io-sparkline", Sparkline)
+            rx_label = app.query_one("#workspace-rx-label", Static)
+            tx_label = app.query_one("#workspace-tx-label", Static)
             rx_activity = app.query_one("#workspace-rx-activity", WorkspaceActivityIndicator)
             tx_activity = app.query_one("#workspace-tx-activity", WorkspaceActivityIndicator)
+            assert data_widget.border_title == " ACTIVITY "
+            assert rule.region.height > 0
+            assert rx_label.region.height > 0
+            assert tx_label.region.height > 0
+            assert rx_label.region.bottom <= connection_widget.region.bottom
+            assert tx_label.region.bottom <= connection_widget.region.bottom
             assert all(value == 0.0 for value in list(sparkline.data or []))
+            assert rx_label.has_class("-off") is True
+            assert tx_label.has_class("-off") is True
             assert rx_activity.value is False
             assert tx_activity.value is False
             assert rx_activity.can_focus is False
@@ -646,6 +794,8 @@ def test_workspace_activity_indicators_and_combined_sparkline_follow_rx_tx_activ
             data = list(sparkline.data or [])
             assert max(data or [0.0]) >= 5.0
             assert min(data or [0.0]) <= -2.0
+            assert rx_label.has_class("-on") is True
+            assert tx_label.has_class("-on") is True
             assert rx_activity.value is True
             assert tx_activity.value is True
 
@@ -654,6 +804,8 @@ def test_workspace_activity_indicators_and_combined_sparkline_follow_rx_tx_activ
             await pilot.pause()
 
             assert all(value == 0.0 for value in list(sparkline.data or []))
+            assert rx_label.has_class("-off") is True
+            assert tx_label.has_class("-off") is True
             assert rx_activity.value is False
             assert tx_activity.value is False
 
@@ -769,6 +921,119 @@ def test_tcp_disconnect_preserves_workspace_until_closed() -> None:
             assert app.active_device_id == "192.168.0.10:4059"
             assert static_text(app.query_one("#workspace-selection", Static)) == (
                 "Active workspace: 192.168.0.10:4059 (saved)"
+            )
+
+    asyncio.run(scenario())
+
+
+def test_disconnect_button_targets_active_workspace_not_left_panel_selection() -> None:
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False)
+        app.device_manager = MultiDeviceManager()
+
+        async with app.run_test() as pilot:
+            app.selected_port = "COM1"
+            app._connect_selected_device()
+            await pilot.pause()
+
+            app.selected_port = "COM2"
+            app._connect_selected_device()
+            await pilot.pause()
+
+            app._set_active_workspace("COM1")
+            await pilot.pause()
+
+            app.query_one("#disconnect-btn", Button).press()
+            await pilot.pause()
+
+            assert app._is_device_connected("COM1") is False
+            assert app._is_device_connected("COM2") is True
+            assert static_text(app.query_one("#workspace-selection", Static)) == (
+                "Active workspace: COM1 (saved)"
+            )
+
+    asyncio.run(scenario())
+
+
+def test_tcp_favorites_button_persists_current_ip_and_port_to_user_profile(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
+    profile = create_user_profile("alice")
+
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False, startup_user=profile)
+        app.device_manager = FakeDeviceManager()
+
+        async with app.run_test() as pilot:
+            connection_tabs = app.query_one("#connection-tabs", TabbedContent)
+            connection_tabs.active = "connection-tcp"
+            app.query_one("#ip-input", Input).value = "192.168.0.10"
+            app.query_one("#port-input", Input).value = "4059"
+            await pilot.pause()
+
+            app.query_one("#tcp-favorites-btn", Button).press()
+            await pilot.pause()
+
+            reloaded_profile = load_user_profile("alice")
+            assert reloaded_profile is not None
+            assert len(reloaded_profile.tcp_favorites) == 1
+            assert reloaded_profile.tcp_favorites[0].host == "192.168.0.10"
+            assert reloaded_profile.tcp_favorites[0].port == 4059
+
+    asyncio.run(scenario())
+
+
+def test_tcp_favorites_select_lists_saved_connections_and_populates_inputs(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
+    profile = create_user_profile("alice")
+
+    upsert_tcp_favorite(profile, "192.168.0.10", 4059)
+    upsert_tcp_favorite(profile, "10.0.0.8", 9000)
+    reloaded_profile = load_user_profile("alice")
+    assert reloaded_profile is not None
+
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False, startup_user=reloaded_profile)
+        app.device_manager = FakeDeviceManager()
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            favorites = app.query_one("#tcp-favorites-list", Select)
+            assert favorites.disabled is False
+            assert favorites.is_blank() is True
+
+            favorites.value = "10.0.0.8:9000"
+            await pilot.pause()
+
+            assert app.query_one("#ip-input", Input).value == "10.0.0.8"
+            assert app.query_one("#port-input", Input).value == "9000"
+
+    asyncio.run(scenario())
+
+
+def test_tcp_favorites_button_warns_and_skips_save_when_inputs_are_blank(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
+    profile = create_user_profile("alice")
+    notifications: list[tuple[str, str | None]] = []
+
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False, startup_user=profile)
+        app.device_manager = FakeDeviceManager()
+        app.notify = lambda message, severity=None, **kwargs: notifications.append((str(message), severity))
+
+        async with app.run_test() as pilot:
+            connection_tabs = app.query_one("#connection-tabs", TabbedContent)
+            connection_tabs.active = "connection-tcp"
+            await pilot.pause()
+
+            app.query_one("#tcp-favorites-btn", Button).press()
+            await pilot.pause()
+
+            reloaded_profile = load_user_profile("alice")
+            assert reloaded_profile is not None
+            assert reloaded_profile.tcp_favorites == []
+            assert notifications[-1] == (
+                "Enter both IP address and TCP port before saving a favorite.",
+                "warning",
             )
 
     asyncio.run(scenario())

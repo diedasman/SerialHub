@@ -1,17 +1,16 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from importlib.resources import files
 from pathlib import Path
-from typing import Sequence
 
 from textual.app import App, ComposeResult  # type: ignore
 from textual.binding import Binding  # type: ignore
 from textual.containers import Horizontal, Vertical, VerticalScroll  # type: ignore
 from textual.css.query import NoMatches  # type: ignore
-from textual.events import Click  # type: ignore
 from textual.reactive import reactive  # type: ignore
 from textual.screen import ModalScreen, Screen  # type: ignore
 from textual.widget import Widget  # type: ignore
@@ -21,20 +20,26 @@ from textual.widgets import (  # type: ignore
     DirectoryTree,
     Footer,
     Input,
-    RadioButton,
     RichLog,
+    Rule,
     Select,
     Sparkline,
     Static,
-    Switch,
     TabbedContent,
     TabPane,
 )
 
 from serialhub.config import get_data_dir, get_logs_dir
 from serialhub.core.device_manager import DeviceManager
-from serialhub.core.models import DeviceInfo, DeviceTransport, SerialConfig, SerialEvent, TcpConfig
-from serialhub.core.session import DeviceSession, WORKSPACE_DATASTREAM_WINDOW
+from serialhub.core.models import (
+    DeviceInfo,
+    DeviceTransport,
+    SerialConfig,
+    SerialEvent,
+    TcpConfig,
+    build_tcp_device_id,
+)
+from serialhub.core.session import WORKSPACE_DATASTREAM_WINDOW, DeviceSession
 from serialhub.logging.paths import resolve_log_destination
 from serialhub.logging.session_logger import SessionLogger
 from serialhub.protocols import AsciiBinaryDecoder
@@ -49,6 +54,7 @@ from serialhub.user_profiles import (
     CommandConfig,
     UserProfile,
     create_user_profile,
+    delete_command_config_document,
     escape_command_value_for_editor,
     get_remembered_username,
     get_user_command_configs_dir,
@@ -64,6 +70,7 @@ from serialhub.user_profiles import (
     save_user_profile,
     set_remembered_username,
     unescape_command_value_from_editor,
+    upsert_tcp_favorite,
 )
 
 INPUT_HISTORY_MESSAGE = "message"
@@ -84,6 +91,7 @@ _INPUT_HISTORY_FALLBACK_FILENAMES = {
 
 _CONFIG_COMMAND_SEPARATOR = " / "
 _NEW_CONFIG_DOCUMENT_KEY = "__new__"
+_NO_STARTUP_COMMAND_CONFIG = "__none__"
 _WORKSPACE_IDLE_TICK_SECONDS = 0.75
 
 
@@ -157,33 +165,39 @@ class HistoryInput(Input):
             app._navigate_input_history(self.history_id, 1)
 
 
-class ConnectionStatusSwitch(Switch, can_focus=False):
-    def __init__(self, value: bool = False, *args, **kwargs) -> None:
-        kwargs.setdefault("animate", False)
-        super().__init__(value=value, *args, **kwargs)
+class Led(Static):
+    OFF_GLYPH = "○"
+    ON_GLYPH = "●"
+    active = reactive(False)
 
-    async def _on_click(self, event: Click) -> None:
-        event.stop()
+    def __init__(self, active: bool = False, *args, **kwargs) -> None:
+        super().__init__(self.OFF_GLYPH, *args, **kwargs)
+        self.active = active
 
-    def action_toggle_switch(self) -> None:
-        return
+    @property
+    def value(self) -> bool:
+        return self.active
 
-    def toggle(self):
-        return self
+    def watch_active(self, active: bool) -> None:
+        self.update(self.ON_GLYPH if active else self.OFF_GLYPH)
+        self.set_class(active, "-on")
+        self.set_class(not active, "-off")
+
+    def on_mount(self) -> None:
+        self.watch_active(self.active)
 
 
-class WorkspaceActivityIndicator(RadioButton, can_focus=False):
-    BUTTON_LEFT = ""
-    BUTTON_RIGHT = ""
+class ConnectionStatusLed(Led):
+    pass
 
-    async def _on_click(self, event: Click) -> None:
-        event.stop()
 
-    def action_toggle_button(self) -> None:
-        return
+class WorkspaceActivityLed(Led):
+    pass
 
-    def toggle(self):
-        return self
+
+# Compatibility aliases for the previous toolbar widget names.
+ConnectionStatusSwitch = ConnectionStatusLed
+WorkspaceActivityIndicator = WorkspaceActivityLed
 
 
 class CommandConfigDirectoryTree(DirectoryTree):
@@ -201,8 +215,11 @@ class UserLoginScreen(ModalScreen[None]):
         width: 48;
         max-width: 72;
         background: $surface;
-        border: round $primary;
+        border: heavy $primary;
+        border-title-align: center;
         padding: 1 2;
+        height: auto;
+        
     }
 
     #login-message {
@@ -232,7 +249,7 @@ class UserLoginScreen(ModalScreen[None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="login-modal"):
-            yield Static("SERIALHUB LOGIN", classes="section-title")
+            # yield Static("SERIALHUB LOGIN", classes="section-title")
             yield Static(
                 "Enter a username to sign in, or create a new local profile from this screen.",
                 id="login-message",
@@ -241,10 +258,19 @@ class UserLoginScreen(ModalScreen[None]):
             yield Checkbox("Remember Me", id="login-remember")
             with Horizontal(id="login-actions"):
                 yield Button("Login", id="login-submit", variant="primary")
-                yield Button("New User", id="login-new-user", variant="success")
+                yield Button("New User", id="login-new-user", variant="default")
+
+        yield Footer(id="login-footer")
 
     def on_mount(self) -> None:
-        self.query_one("#login-username", Input).focus()
+        self.query_one("#login-modal", Vertical).border_title = " SERIALHUB LOGIN "
+        self.call_after_refresh(self._focus_username_input)
+
+    def _focus_username_input(self) -> None:
+        try:
+            self.query_one("#login-username", Input).focus()
+        except NoMatches:
+            return
 
     def action_submit_login(self) -> None:
         self._submit("login")
@@ -268,6 +294,213 @@ class UserLoginScreen(ModalScreen[None]):
         username = self.query_one("#login-username", Input).value.strip()
         remember_me = self.query_one("#login-remember", Checkbox).value
         self.app.handle_login_action(action, username, remember_me)
+
+
+class UserSettingsScreen(ModalScreen[None]):
+    DEFAULT_CSS = """
+    UserSettingsScreen {
+        align: center middle;
+    }
+
+    #settings-modal {
+        width: 56;
+        max-width: 84;
+        background: $surface;
+        border: heavy $primary;
+        border-title-align: center;
+        padding: 1 2;
+        height: auto;
+    }
+
+    #settings-message {
+        color: $accent;
+        margin-bottom: 1;
+    }
+
+    .settings-input-label {
+        margin-top: 1;
+    }
+
+    #settings-startup-command,
+    #settings-theme,
+    #settings-log-folder {
+        margin-bottom: 1;
+    }
+
+    #settings-actions {
+        height: auto;
+        margin-top: 1;
+    }
+
+    #settings-save,
+    #settings-close {
+        width: 1fr;
+    }
+    """
+
+    BINDINGS = [
+        Binding("ctrl+s", "save_settings", "Save"),
+        Binding("escape", "close_settings", "Close"),
+    ]
+
+    def __init__(
+        self,
+        *,
+        command_configs: Sequence[CommandConfig],
+        startup_command_config: str,
+        theme_mode: str,
+        log_folder: str,
+    ) -> None:
+        super().__init__()
+        self._command_configs = tuple(command_configs)
+        self._startup_command_config = startup_command_config
+        self._theme_mode = normalize_theme_mode(theme_mode)
+        self._log_folder = log_folder
+
+    def compose(self) -> ComposeResult:
+        startup_options = [("Do not auto-load a command file", _NO_STARTUP_COMMAND_CONFIG)]
+        startup_options.extend((config.path.name, config.key) for config in self._command_configs)
+
+        startup_value = (
+            self._startup_command_config
+            if self._startup_command_config and any(
+                config.key == self._startup_command_config for config in self._command_configs
+            )
+            else _NO_STARTUP_COMMAND_CONFIG
+        )
+
+        with Vertical(id="settings-modal"):
+            yield Static(
+                "Set the defaults used when this user profile signs in.",
+                id="settings-message",
+            )
+            yield Static("STARTUP COMMAND FILE", classes="settings-input-label")
+            yield Select(
+                startup_options,
+                value=startup_value,
+                allow_blank=False,
+                id="settings-startup-command",
+            )
+            yield Static("DEFAULT THEME", classes="settings-input-label")
+            yield Select(
+                [("Dark", "dark"), ("Light", "light")],
+                value=self._theme_mode,
+                allow_blank=False,
+                id="settings-theme",
+            )
+            yield Static("DEFAULT LOG FOLDER", classes="settings-input-label")
+            yield Input(
+                value=self._log_folder,
+                placeholder="Leave blank to use the per-user logs folder",
+                id="settings-log-folder",
+            )
+            with Horizontal(id="settings-actions"):
+                yield Button("Save and Exit", id="settings-save", variant="success")
+                yield Button("Close", id="settings-close", variant="default")
+
+        yield Footer(id="settings-footer")
+
+    def on_mount(self) -> None:
+        self.query_one("#settings-modal", Vertical).border_title = " USER SETTINGS "
+        self.call_after_refresh(self._focus_startup_command)
+
+    def _focus_startup_command(self) -> None:
+        try:
+            self.query_one("#settings-startup-command", Select).focus()
+        except NoMatches:
+            return
+
+    def action_save_settings(self) -> None:
+        self._save()
+
+    def action_close_settings(self) -> None:
+        self.dismiss(None)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        button_id = event.button.id or ""
+        if button_id == "settings-save":
+            self._save()
+            return
+        if button_id == "settings-close":
+            self.dismiss(None)
+
+    def _save(self) -> None:
+        startup_value = str(self.query_one("#settings-startup-command", Select).value)
+        startup_command_config = "" if startup_value == _NO_STARTUP_COMMAND_CONFIG else startup_value
+        theme_mode = normalize_theme_mode(self.query_one("#settings-theme", Select).value)
+        log_folder = self.query_one("#settings-log-folder", Input).value
+
+        if self.app.save_user_settings(
+            startup_command_config=startup_command_config,
+            theme_mode=theme_mode,
+            log_folder=log_folder,
+        ):
+            self.dismiss(None)
+
+
+class DeleteConfigConfirmScreen(ModalScreen[bool]):
+    DEFAULT_CSS = """
+    DeleteConfigConfirmScreen {
+        align: center middle;
+    }
+
+    #config-delete-modal {
+        width: 56;
+        max-width: 80;
+        background: $surface;
+        border: round $error;
+        padding: 1 2;
+    }
+
+    #config-delete-message {
+        margin: 1 0;
+    }
+
+    #config-delete-actions {
+        height: auto;
+        margin-top: 1;
+    }
+
+    #config-delete-yes,
+    #config-delete-no {
+        width: 1fr;
+    }
+    """
+
+    BINDINGS = [
+        Binding("y", "confirm", show=False),
+        Binding("n", "cancel", show=False),
+        Binding("escape", "cancel", "Cancel"),
+    ]
+
+    def __init__(self, filename: str) -> None:
+        super().__init__()
+        self.filename = filename
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="config-delete-modal"):
+            yield Static("DELETE CONFIG", classes="section-title")
+            yield Static(
+                f"Are you sure you want to delete {self.filename}?",
+                id="config-delete-message",
+            )
+            with Horizontal(id="config-delete-actions"):
+                yield Button("Yes", id="config-delete-yes", variant="error")
+                yield Button("No", id="config-delete-no", variant="primary")
+
+    def action_confirm(self) -> None:
+        self.dismiss(True)
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        button_id = event.button.id or ""
+        if button_id == "config-delete-yes":
+            self.dismiss(True)
+            return
+        if button_id == "config-delete-no":
+            self.dismiss(False)
 
 
 class ConfigEditorScreen(Screen[None]):
@@ -295,6 +528,7 @@ class ConfigEditorScreen(Screen[None]):
             with Vertical(id="config-file-browser", classes="panel"):
                 with Horizontal(id="config-browser-actions"):
                     yield Button("New", id="config-new", variant="success")
+                    yield Button("Delete", id="config-delete", variant="error")
                 yield CommandConfigDirectoryTree(config_root, id="config-file-tree")
 
             with Vertical(id="config-command-editor", classes="panel"):
@@ -336,6 +570,9 @@ class ConfigEditorScreen(Screen[None]):
         button_id = event.button.id or ""
         if button_id == "config-new":
             self._open_new_document()
+            return
+        if button_id == "config-delete":
+            self._confirm_delete_selected_document()
             return
         if button_id == "config-add-command":
             self._add_command_row()
@@ -407,6 +644,42 @@ class ConfigEditorScreen(Screen[None]):
         self.selected_path = path
         self._active_document_key = key
         self._render_document(document)
+
+    def _confirm_delete_selected_document(self) -> None:
+        path = self.selected_path
+        if path is None or path.suffix.lower() != ".json":
+            self.app.notify("Focus a command file before deleting it.", severity="warning")
+            return
+
+        self.app.push_screen(
+            DeleteConfigConfirmScreen(path.name),
+            callback=lambda confirmed: self._handle_delete_selected_document(path, confirmed),
+        )
+
+    def _handle_delete_selected_document(self, path: Path, confirmed: bool | None) -> None:
+        if not confirmed:
+            return
+        if self.app.current_user is None:
+            self.app.notify("Sign in before deleting command files.", severity="warning")
+            return
+
+        try:
+            delete_command_config_document(self.app.current_user, path)
+        except FileNotFoundError:
+            self.app.notify(f"{path.name} was already removed.", severity="warning")
+            return
+        except OSError as exc:
+            self.app.notify(f"Delete failed: {exc}", severity="error")
+            return
+
+        deleted_key = self._document_key_for_path(path)
+        self._document_drafts.pop(deleted_key, None)
+        self.selected_path = None
+        if self._active_document_key == deleted_key:
+            self._render_empty_editor()
+        self.query_one("#config-file-tree", CommandConfigDirectoryTree).reload()
+        self.app._refresh_command_configs()
+        self.app.notify(f"Deleted {path.name}")
 
     def _document_key_for_path(self, path: Path) -> str:
         return str(path.resolve())
@@ -783,6 +1056,8 @@ class SerialHubApp(App[None]):
         self._command_configs: dict[str, CommandConfig] = {}
         self._command_buttons: dict[str, CommandButtonSpec] = {}
         self._refreshing_command_configs = False
+        self._refreshing_tcp_favorites = False
+        self._tcp_favorites: dict[str, tuple[str, int]] = {}
         self._input_history_states = {
             history_id: InputHistoryState()
             for history_id in _INPUT_HISTORY_SELECTORS
@@ -834,28 +1109,28 @@ class SerialHubApp(App[None]):
                         )
                         yield Select(
                             [
-                                ("Parity None (N)", "N"),
-                                ("Parity Even (E)", "E"),
-                                ("Parity Odd (O)", "O"),
-                                ("Parity Mark (M)", "M"),
-                                ("Parity Space (S)", "S"),
+                                ("Parity: None (N)", "N"),
+                                ("Parity: Even (E)", "E"),
+                                ("Parity: Odd (O)", "O"),
+                                ("Parity: Mark (M)", "M"),
+                                ("Parity: Space (S)", "S"),
                             ],
                             id="parity-select",
                             value="N",
                             allow_blank=False,
                         )
                         yield Select(
-                            [("Stop Bits 1", "1"), ("Stop Bits 1.5", "1.5"), ("Stop Bits 2", "2")],
+                            [("Stop Bits: 1", "1"), ("Stop Bits: 1.5", "1.5"), ("Stop Bits: 2", "2")],
                             id="stopbits-select",
                             value="1",
                             allow_blank=False,
                         )
                         yield Select(
                             [
-                                ("Data Bits 8", "8"),
-                                ("Data Bits 7", "7"),
-                                ("Data Bits 6", "6"),
-                                ("Data Bits 5", "5"),
+                                ("Data Bits: 8", "8"),
+                                ("Data Bits: 7", "7"),
+                                ("Data Bits: 6", "6"),
+                                ("Data Bits: 5", "5"),
                             ],
                             id="databits-select",
                             value="8",
@@ -881,6 +1156,14 @@ class SerialHubApp(App[None]):
                             history_id=INPUT_HISTORY_TCP_PORT,
                         )
                         yield Button("Clear", id="clear-tcp-inputs")
+                        yield Button("Add to Favorites", id="tcp-favorites-btn")
+                        yield Select(
+                            [],
+                            id="tcp-favorites-list",
+                            prompt="Select saved Connections",
+                            allow_blank=True,
+                        )
+
 
                 with Horizontal(id="left-panel-actions", classes="stack-row"):
                     yield Button("Connect", id="connect-btn", variant="success")
@@ -889,45 +1172,48 @@ class SerialHubApp(App[None]):
             with Vertical(id="center-panel", classes="panel"):
                 with Horizontal(id="workspace-toolbar"):
                     with Vertical(id="workspace-connection-widget", classes="workspace-toolbar-widget"):
-                        yield Static("CONNECTION", id="connection-status-title")
+                        with Horizontal(id="connection-status-row"):
+                            yield Static("CONNECTION", id="connection-status-title")
+                            yield ConnectionStatusLed(id="connection-status-led")
+                        yield Rule(line_style="heavy", id="connection-status-rule")
                         with Horizontal(id="workspace-status-indicators"):
-                            yield Static("LINK", classes="workspace-indicator-label")
-                            yield ConnectionStatusSwitch(id="connection-status-switch")
-                            yield Static("RX", classes="workspace-indicator-label workspace-indicator-label-rx")
-                            yield WorkspaceActivityIndicator(
-                                "",
+                            yield Static("RX", id="workspace-rx-label", classes="workspace-indicator-label")
+                            yield WorkspaceActivityLed(
                                 id="workspace-rx-activity",
                                 classes="workspace-activity workspace-activity-rx",
                             )
-                            yield Static("TX", classes="workspace-indicator-label workspace-indicator-label-tx")
-                            yield WorkspaceActivityIndicator(
-                                "",
+                            yield Static("TX", id="workspace-tx-label", classes="workspace-indicator-label")
+                            yield WorkspaceActivityLed(
                                 id="workspace-tx-activity",
                                 classes="workspace-activity workspace-activity-tx",
                             )
 
                     with Vertical(id="workspace-data-widget", classes="workspace-toolbar-widget"):
-                        yield Static("LINE ACTIVITY", id="workspace-data-title")
                         yield Sparkline(
                             [0.0] * WORKSPACE_DATASTREAM_WINDOW,
                             id="workspace-io-sparkline",
                             summary_function=_sparkline_signed_peak,
                         )
 
-                    with Vertical(id="workspace-toolbar-actions"):
+                    # with Vertical(
+                    #     id="workspace-toolbar-actions",
+                    #     classes="workspace-toolbar-widget-buttons",
+                    # ):
+                    with Horizontal(id="workspace-toolbar-buttons"):
                         yield Button(
                             "Clear",
                             id="clear-console-btn",
                             variant="warning",
-                            classes="workspace-flat-button",
                             disabled=True,
+                            # compact=True,
                         )
                         yield Button(
                             "Close",
                             id="close-active-workspace",
                             variant="error",
-                            classes="workspace-flat-button",
                             disabled=True,
+                            # compact=True,
+                            # flat=True,
                         )
 
                 with TabbedContent(initial=self.WORKSPACE_PLACEHOLDER_ID, id="workspace-tabs"):
@@ -966,14 +1252,15 @@ class SerialHubApp(App[None]):
                     yield Input(placeholder="Log folder or .txt path", id="log-filepath")
                     yield Button("Start Logging", id="toggle-logging")
 
-                with Vertical(id="workspace-status"):
+                with Horizontal(id="workspace-status"):
                     yield Static("No device workspaces open.", id="workspace-selection", classes="hint")
                     yield Static("No user.", id="current-user-summary", classes="hint")
 
             with Vertical(id="right-panel", classes="panel"):
                 with Horizontal(id="right-panel-header"):
-                    yield Static("", id="right-panel-spacer")
+                    # yield Static("", id="right-panel-spacer")
                     yield Button("CONFIG EDITOR", id="config-editor-btn", variant="warning")
+                    yield Button("USER SETTINGS", id="user-settings-btn", variant="default")
                 
                 yield Select([], id="command-config-select", prompt="Select command config", allow_blank=True)
                 # yield Static(
@@ -1041,11 +1328,31 @@ class SerialHubApp(App[None]):
             return
         self.push_screen(ConfigEditorScreen())
 
+    def action_open_user_settings(self) -> None:
+        if isinstance(self.screen, UserLoginScreen):
+            return
+        if not self.current_user:
+            self.notify("Sign in to edit user settings.", severity="warning")
+            return
+        if isinstance(self.screen, UserSettingsScreen):
+            return
+        self._sync_command_config_cache()
+        self.push_screen(
+            UserSettingsScreen(
+                command_configs=list(self._command_configs.values()),
+                startup_command_config=self.current_user.startup_command_config,
+                theme_mode=self.theme_mode,
+                log_folder=self.current_user.log_folder,
+            )
+        )
+
     def action_logout(self) -> None:
         if isinstance(self.screen, UserLoginScreen):
             return
 
         if isinstance(self.screen, ConfigEditorScreen):
+            self.pop_screen()
+        if isinstance(self.screen, UserSettingsScreen):
             self.pop_screen()
 
         self.current_user = None
@@ -1120,6 +1427,10 @@ class SerialHubApp(App[None]):
             self._clear_tcp_details_inputs()
             return
 
+        if button_id == "tcp-favorites-btn":
+            self._save_tcp_favorite_from_inputs()
+            return
+
         if button_id == "send-btn":
             self._send_current_input()
             return
@@ -1130,6 +1441,10 @@ class SerialHubApp(App[None]):
 
         if button_id == "config-editor-btn":
             self.action_open_config_editor()
+            return
+
+        if button_id == "user-settings-btn":
+            self.action_open_user_settings()
             return
 
         if button_id == "clear-console-btn":
@@ -1184,6 +1499,17 @@ class SerialHubApp(App[None]):
                 self._render_command_buttons(None)
                 return
             self._render_command_buttons(str(event.value))
+            return
+
+        if event.select.id == "tcp-favorites-list":
+            if self._refreshing_tcp_favorites or event.select.is_blank():
+                return
+            favorite = self._tcp_favorites.get(str(event.value))
+            if favorite is None:
+                return
+            host, port = favorite
+            self._set_history_input_value(INPUT_HISTORY_TCP_IP, host)
+            self._set_history_input_value(INPUT_HISTORY_TCP_PORT, str(port))
 
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
         if event.checkbox.id != "timestamp-checkbox":
@@ -1253,23 +1579,106 @@ class SerialHubApp(App[None]):
         self.current_user.theme = self.theme
         save_user_profile(self.current_user)
 
+    def save_user_settings(
+        self,
+        *,
+        startup_command_config: str,
+        theme_mode: str,
+        log_folder: str,
+    ) -> bool:
+        if not self.current_user:
+            return False
+
+        self._sync_command_config_cache()
+        normalized_startup = startup_command_config.strip()
+        if normalized_startup and normalized_startup not in self._command_configs:
+            self.notify("Select a valid startup command file.", severity="warning")
+            return False
+
+        try:
+            normalized_log_folder = self._normalize_log_destination_setting(log_folder)
+        except ValueError as exc:
+            self.notify(str(exc), severity="error")
+            return False
+
+        self.theme_mode = normalize_theme_mode(theme_mode)
+        self.theme = resolve_textual_theme_name(self.theme_mode)
+        self.current_user.theme = self.theme
+        self.current_user.log_folder = normalized_log_folder
+        self.current_user.startup_command_config = normalized_startup
+        save_user_profile(self.current_user)
+
+        self._refresh_user_dependent_ui()
+        if normalized_startup:
+            self._refresh_command_configs(selected_key=normalized_startup)
+        self.notify("User settings saved.")
+        return True
+
     def _refresh_user_dependent_ui(self) -> None:
         summary = self._query_ui("#current-user-summary", Static)
         log_input = self._query_ui("#log-filepath", Input)
         config_button = self._query_ui("#config-editor-btn", Button)
+        settings_button = self._query_ui("#user-settings-btn", Button)
 
         if self.current_user:
             summary.update(f"user: {self.current_user.username}")
             log_input.value = self.current_user.log_folder
             config_button.disabled = False
+            settings_button.disabled = False
         else:
             summary.update("No user.")
             log_input.value = ""
             config_button.disabled = True
+            settings_button.disabled = True
 
+        self._refresh_tcp_favorites()
         self._refresh_command_configs()
 
-    def _refresh_command_configs(self) -> None:
+    def _refresh_tcp_favorites(self, *, selected_key: str | None = None) -> None:
+        select = self._query_ui("#tcp-favorites-list", Select)
+
+        self._refreshing_tcp_favorites = True
+        try:
+            if not self.current_user:
+                self._tcp_favorites = {}
+                select.set_options([])
+                select.clear()
+                select.disabled = True
+                return
+
+            options: list[tuple[str, str]] = []
+            mapping: dict[str, tuple[str, int]] = {}
+            for favorite in self.current_user.tcp_favorites:
+                key = build_tcp_device_id(favorite.host, favorite.port)
+                options.append((key, key))
+                mapping[key] = (favorite.host, favorite.port)
+
+            self._tcp_favorites = mapping
+            select.set_options(options)
+            select.disabled = not options
+
+            if not options:
+                select.clear()
+                return
+
+            current_value = None if select.is_blank() else str(select.value)
+            active_key = (
+                selected_key
+                if selected_key in mapping
+                else current_value
+                if current_value in mapping
+                else None
+            )
+
+            if active_key is None:
+                select.clear()
+                return
+
+            select.value = active_key
+        finally:
+            self._refreshing_tcp_favorites = False
+
+    def _refresh_command_configs(self, *, selected_key: str | None = None) -> None:
         select = self._query_ui("#command-config-select", Select)
         # hint = self._query_ui("#command-config-hint", Static)
         current_value = None if select.is_blank() else str(select.value)
@@ -1299,14 +1708,21 @@ class SerialHubApp(App[None]):
                 )
                 return
 
-            active_key = (
-                current_value
-                if current_value in self._command_configs
-                else options[0][1]
-            )
-            # hint.update("Select a function button to send its configured message.")
-            select.value = active_key
-            self._render_command_buttons(active_key)
+            active_key = None
+            if selected_key and selected_key in self._command_configs:
+                active_key = selected_key
+            elif current_value in self._command_configs:
+                active_key = current_value
+            elif self.current_user.startup_command_config in self._command_configs:
+                active_key = self.current_user.startup_command_config
+
+            if active_key is not None:
+                select.value = active_key
+                self._render_command_buttons(active_key)
+                return
+
+            select.clear()
+            self._render_command_buttons(None)
         finally:
             self._refreshing_command_configs = False
 
@@ -1419,6 +1835,7 @@ class SerialHubApp(App[None]):
         self._query_ui("#left-panel", Vertical).border_title = " CONNECTION "
         self._query_ui("#center-panel", Vertical).border_title = " MONITOR "
         self._query_ui("#right-panel", Vertical).border_title = " FUNCTIONS "
+        self._query_ui("#workspace-data-widget", Vertical).border_title = " ACTIVITY "
 
     def _update_device_meta(self, selected_port: str) -> None:
         selected = next((device for device in self.discovered_devices if device.port == selected_port), None)
@@ -1569,27 +1986,10 @@ class SerialHubApp(App[None]):
             self._query_ui("#ip-input", Input).focus()
 
     def _disconnect_active_device(self) -> None:
-        target = self._resolve_disconnect_target()
-        if not target:
-            self.notify("No device selected.", severity="warning")
+        if not self.active_device_id:
+            self.notify("No active workspace selected.", severity="warning")
             return
-        self._disconnect_device(target)
-
-    def _resolve_disconnect_target(self) -> str | None:
-        tcp_target: str | None = None
-        try:
-            tcp_target = self._build_tcp_config_from_inputs().device_id
-        except Exception:
-            tcp_target = None
-
-        if (
-            self._active_connection_tab() == "connection-tcp"
-            and tcp_target
-            and self._is_device_connected(tcp_target)
-        ):
-            return tcp_target
-
-        return self.active_device_id or self.selected_port or tcp_target
+        self._disconnect_device(self.active_device_id)
 
     def _disconnect_device(self, target: str) -> None:
         if not self._is_device_connected(target):
@@ -1701,6 +2101,30 @@ class SerialHubApp(App[None]):
             conn.send(payload)
         except Exception as exc:
             self.notify(f"Send failed: {exc}", severity="error")
+
+    def _save_tcp_favorite_from_inputs(self) -> None:
+        if not self.current_user:
+            self.notify("Sign in before saving TCP favorites.", severity="warning")
+            return
+
+        host = self._query_ui("#ip-input", Input).value.strip()
+        port_text = self._query_ui("#port-input", Input).value.strip()
+        if not host or not port_text:
+            self.notify("Enter both IP address and TCP port before saving a favorite.", severity="warning")
+            return
+
+        try:
+            config = self._build_tcp_config_from_inputs()
+        except Exception as exc:
+            self.notify(f"Invalid TCP favorite: {exc}", severity="error")
+            return
+
+        added = upsert_tcp_favorite(self.current_user, config.host, config.port)
+        self._refresh_tcp_favorites(selected_key=config.device_id)
+        if added:
+            self.notify(f"Saved {config.device_id} to favorites.")
+            return
+        self.notify(f"Updated favorite {config.device_id}.")
 
     def _input_history_state(self, history_id: str) -> InputHistoryState:
         return self._input_history_states[history_id]
@@ -1933,8 +2357,24 @@ class SerialHubApp(App[None]):
             self.notify(f"Logging started for {session.device_id}: {session.logger.log_path.name}")
         return True
 
+    def _normalize_log_destination_setting(self, configured_path: str) -> str:
+        normalized = configured_path.strip()
+        if not normalized:
+            return ""
+
+        target = Path(normalized).expanduser()
+        if target.suffix.lower() == ".txt":
+            return normalized
+        if not target.exists():
+            raise ValueError("The selected log folder does not exist.")
+        if not target.is_dir():
+            raise ValueError("Log destination must be a folder or a .txt file path.")
+        return normalized
+
     def _resolve_log_path(self, device_id: str) -> Path:
-        configured_path = self._query_ui("#log-filepath", Input).value.strip()
+        configured_path = self._normalize_log_destination_setting(
+            self._query_ui("#log-filepath", Input).value
+        )
         if self.current_user:
             self.current_user.log_folder = configured_path
             save_user_profile(self.current_user)
@@ -2049,6 +2489,15 @@ class SerialHubApp(App[None]):
     def _line_has_recent_activity(self, samples: Sequence[float], window: int = 4) -> bool:
         return any(value > 0 for value in samples[-window:])
 
+    def _set_workspace_sparkline_state(self, sparkline: Sparkline, session: DeviceSession | None) -> None:
+        rx_active = bool(session and any(sample > 0 for sample in session.workspace_datastream.rx_samples))
+        tx_active = bool(session and any(sample > 0 for sample in session.workspace_datastream.tx_samples))
+
+        sparkline.set_class(not rx_active and not tx_active, "-idle")
+        sparkline.set_class(rx_active and not tx_active, "-rx-only")
+        sparkline.set_class(tx_active and not rx_active, "-tx-only")
+        sparkline.set_class(rx_active and tx_active, "-duplex")
+
     def _advance_workspace_datastreams(self) -> None:
         if self._shutting_down or not self.sessions:
             return
@@ -2060,32 +2509,59 @@ class SerialHubApp(App[None]):
 
     def _refresh_workspace_toolbar(self) -> None:
         try:
-            connection_switch = self._query_ui("#connection-status-switch", ConnectionStatusSwitch)
-            rx_activity = self._query_ui("#workspace-rx-activity", WorkspaceActivityIndicator)
-            tx_activity = self._query_ui("#workspace-tx-activity", WorkspaceActivityIndicator)
+            connection_title = self._query_ui("#connection-status-title", Static)
+            connection_led = self._query_ui("#connection-status-led", ConnectionStatusLed)
+            rx_label = self._query_ui("#workspace-rx-label", Static)
+            tx_label = self._query_ui("#workspace-tx-label", Static)
+            rx_activity = self._query_ui("#workspace-rx-activity", WorkspaceActivityLed)
+            tx_activity = self._query_ui("#workspace-tx-activity", WorkspaceActivityLed)
             sparkline = self._query_ui("#workspace-io-sparkline", Sparkline)
         except NoMatches:
             return
 
         if not self.active_device_id:
-            connection_switch.value = False
-            rx_activity.value = False
-            tx_activity.value = False
+            connection_title.set_class(False, "-on")
+            connection_title.set_class(True, "-off")
+            connection_led.active = False
+            rx_label.set_class(False, "-on")
+            rx_label.set_class(True, "-off")
+            tx_label.set_class(False, "-on")
+            tx_label.set_class(True, "-off")
+            rx_activity.active = False
+            tx_activity.active = False
             sparkline.data = self._empty_workspace_feed()
+            self._set_workspace_sparkline_state(sparkline, None)
             return
 
         session = self.sessions.get(self.active_device_id)
         if not session:
-            connection_switch.value = False
-            rx_activity.value = False
-            tx_activity.value = False
+            connection_title.set_class(False, "-on")
+            connection_title.set_class(True, "-off")
+            connection_led.active = False
+            rx_label.set_class(False, "-on")
+            rx_label.set_class(True, "-off")
+            tx_label.set_class(False, "-on")
+            tx_label.set_class(True, "-off")
+            rx_activity.active = False
+            tx_activity.active = False
             sparkline.data = self._empty_workspace_feed()
+            self._set_workspace_sparkline_state(sparkline, None)
             return
 
-        connection_switch.value = self._is_device_connected(self.active_device_id)
-        rx_activity.value = self._line_has_recent_activity(session.workspace_datastream.rx_samples)
-        tx_activity.value = self._line_has_recent_activity(session.workspace_datastream.tx_samples)
+        connected = self._is_device_connected(self.active_device_id)
+        rx_recent = self._line_has_recent_activity(session.workspace_datastream.rx_samples)
+        tx_recent = self._line_has_recent_activity(session.workspace_datastream.tx_samples)
+        connection_title.set_class(connected, "-on")
+        connection_title.set_class(not connected, "-off")
+        connection_led.active = connected
+        rx_label.set_class(rx_recent, "-on")
+        rx_label.set_class(not rx_recent, "-off")
+        tx_label.set_class(tx_recent, "-on")
+        tx_label.set_class(not tx_recent, "-off")
+        rx_activity.active = rx_recent
+        tx_activity.active = tx_recent
         sparkline.data = self._combined_workspace_feed(session)
+        self._set_workspace_sparkline_state(sparkline, session)
 
     def _refresh_workspace_state(self, device_id: str) -> None:
         self._render_workspace_session(device_id, preserve_scroll=True)

@@ -127,18 +127,44 @@ def get_app_state_path() -> Path:
 
 
 @dataclass(slots=True)
+class TcpFavorite:
+    host: str
+    port: int
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "HOST": self.host,
+            "PORT": self.port,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, object]) -> TcpFavorite:
+        host = str(payload.get("HOST", "")).strip()
+        port = int(payload.get("PORT", 0) or 0)
+        if not host:
+            raise ValueError("TCP favorite host cannot be blank.")
+        if port <= 0:
+            raise ValueError("TCP favorite port must be greater than zero.")
+        return cls(host=host, port=port)
+
+
+@dataclass(slots=True)
 class UserProfile:
     username: str
     theme: str = _DEFAULT_THEME_NAME
     log_folder: str = ""
+    startup_command_config: str = ""
     command_configs: list[str] = field(default_factory=lambda: ["blank"])
+    tcp_favorites: list[TcpFavorite] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
         return {
             "USERNAME": self.username,
             "THEME": self.theme,
             "LOG_FOLDER": self.log_folder,
+            "STARTUP_COMMAND_CONFIG": self.startup_command_config,
             "COMMAND_CONFIGS": self.command_configs,
+            "TCP_FAVORITES": [favorite.to_dict() for favorite in self.tcp_favorites],
         }
 
     @classmethod
@@ -146,18 +172,32 @@ class UserProfile:
         username = normalize_username(str(payload.get("USERNAME", "")))
         theme = str(payload.get("THEME", _DEFAULT_THEME_NAME)).strip() or _DEFAULT_THEME_NAME
         log_folder = str(payload.get("LOG_FOLDER", "")).strip()
+        startup_command_config = str(payload.get("STARTUP_COMMAND_CONFIG", "")).strip()
+        if startup_command_config:
+            startup_command_config = normalize_command_config_name(startup_command_config)
+        raw_command_configs = payload.get("COMMAND_CONFIGS")
         command_configs = [
             normalize_command_config_name(str(item))
-            for item in payload.get("COMMAND_CONFIGS", [])
+            for item in raw_command_configs or []
             if str(item).strip()
         ]
-        if not command_configs:
+        if raw_command_configs is None and not command_configs:
             command_configs = ["blank"]
+        tcp_favorites: list[TcpFavorite] = []
+        for item in payload.get("TCP_FAVORITES", []):
+            if not isinstance(item, dict):
+                continue
+            try:
+                tcp_favorites.append(TcpFavorite.from_dict(item))
+            except (TypeError, ValueError):
+                continue
         return cls(
             username=username,
             theme=theme,
             log_folder=log_folder,
+            startup_command_config=startup_command_config,
             command_configs=command_configs,
+            tcp_favorites=tcp_favorites,
         )
 
 
@@ -177,6 +217,18 @@ def _dedupe_command_config_keys(items: list[str]) -> list[str]:
         if key in seen:
             continue
         result.append(key)
+        seen.add(key)
+    return result
+
+
+def _dedupe_tcp_favorites(items: list[TcpFavorite]) -> list[TcpFavorite]:
+    result: list[TcpFavorite] = []
+    seen: set[tuple[str, int]] = set()
+    for item in items:
+        key = (item.host, item.port)
+        if key in seen:
+            continue
+        result.append(item)
         seen.add(key)
     return result
 
@@ -214,12 +266,43 @@ def save_command_config_document(
         index = config_keys.index(previous_key)
         config_keys[index] = key
         config_keys = _dedupe_command_config_keys(config_keys)
+        if profile.startup_command_config:
+            startup_key = normalize_command_config_name(profile.startup_command_config)
+            if startup_key == previous_key:
+                profile.startup_command_config = key
     elif key not in config_keys:
         config_keys.append(key)
 
     profile.command_configs = config_keys
     save_user_profile(profile)
     return target_path
+
+
+def delete_command_config_document(profile: UserProfile, path: Path) -> None:
+    if not path.exists():
+        raise FileNotFoundError(path)
+
+    key = normalize_command_config_name(path.stem)
+    path.unlink()
+    profile.command_configs = [
+        item
+        for item in _dedupe_command_config_keys(profile.command_configs)
+        if normalize_command_config_name(item) != key
+    ]
+    if profile.startup_command_config:
+        startup_key = normalize_command_config_name(profile.startup_command_config)
+        if startup_key == key:
+            profile.startup_command_config = ""
+    save_user_profile(profile)
+
+
+def upsert_tcp_favorite(profile: UserProfile, host: str, port: int) -> bool:
+    favorite = TcpFavorite(host=str(host).strip(), port=int(port))
+    existing = _dedupe_tcp_favorites(profile.tcp_favorites)
+    added = all(item.host != favorite.host or item.port != favorite.port for item in existing)
+    profile.tcp_favorites = _dedupe_tcp_favorites([favorite, *existing])
+    save_user_profile(profile)
+    return added
 
 
 def migrate_legacy_command_configs(username: str) -> None:
@@ -251,7 +334,13 @@ def save_user_profile(profile: UserProfile) -> None:
             username=normalized,
             theme=profile.theme,
             log_folder=profile.log_folder,
+            startup_command_config=(
+                normalize_command_config_name(profile.startup_command_config)
+                if profile.startup_command_config
+                else ""
+            ),
             command_configs=[normalize_command_config_name(item) for item in profile.command_configs],
+            tcp_favorites=_dedupe_tcp_favorites(profile.tcp_favorites),
         ).to_dict(),
     )
 
@@ -287,6 +376,7 @@ def create_user_profile(username: str) -> UserProfile:
         username=normalized,
         theme=_DEFAULT_THEME_NAME,
         log_folder="",
+        startup_command_config="",
         command_configs=[f"{normalized}_cmds", "blank"],
     )
     save_user_profile(profile)

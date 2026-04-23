@@ -4,18 +4,38 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [Unreleased] - 2026-04-23
+
+### Added
+
+- Added a confirmation modal for deleting the focused command-config file from the `Config Editor`.
+- Added per-user TCP favorites storage plus regression coverage for saving favorite IP/port pairs from the `TCP/IP` panel.
+- Added a saved-connections `Select` under the `Add to Favorites` button so users can browse and reuse stored TCP endpoints.
+
+### Changed
+
+- The workspace toolbar now uses an `ACTIVITY` border title for the sparkline widget instead of the old inline `LINE ACTIVITY` label.
+- RX and TX toolbar labels now change color dynamically based on recent activity in the active workspace.
+- The functions-panel command-config selector now stays blank until the user explicitly chooses a config instead of auto-loading the first available file.
+
+### Fixed
+
+- Fixed the main `Disconnect` action so it disconnects the active workspace device instead of using the left-panel connection details as the target.
+- Added regression coverage for active-workspace disconnect behavior, config-file deletion, and the updated toolbar activity states.
+- Restored the RX/TX toolbar labels so they remain visible with the new 5-row toolbar height and the added connection-status rule widget.
+
 ## [Unreleased] - 2026-04-22
 
 ### Added
 
-- Added a read-only connection-status switch plus compact RX/TX activity indicators to the workspace toolbar for the active workspace.
+- Added compact glyph-based LED indicators for connection, RX, and TX activity in the workspace toolbar.
 - Added a combined live RX/TX sparkline to the workspace toolbar, backed by a session datastream model that the UI can query directly.
 - Added regression coverage for the moved workspace status block and the refined toolbar connection/activity widgets.
 
 ### Changed
 
 - Moved the workspace status container to the bottom of the center panel while keeping it inside the panel border and full-width with the workspace content.
-- Reworked the workspace toolbar layout to host the refined connection and live data widgets alongside flat clear/close actions.
+- Reworked the workspace toolbar layout so the `CONNECTION` label follows the LED state color, the LED glyphs keep their natural width, and `Clear`/`Close` use compact side-by-side buttons sized to fit inside the toolbar action widget.
 
 ## [Unreleased] - 2026-04-21
 
