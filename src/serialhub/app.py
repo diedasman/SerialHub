@@ -533,11 +533,11 @@ class ConfigEditorScreen(Screen[None]):
 
             with Vertical(id="config-command-editor", classes="panel"):
                 with Vertical(id="config-editor-form"):
+                    with Horizontal(id="config-name-row"):
+                        yield Static("NAME", classes="config-input-label")
+                        yield Input(placeholder="config file name", id="config-name-input")
+                        yield Button("Add Command", id="config-add-command", variant="primary")
                     with VerticalScroll(id="config-editor-scroll"):
-                        with Horizontal(id="config-name-row"):
-                            yield Static("NAME", classes="config-input-label")
-                            yield Input(placeholder="config file name", id="config-name-input")
-                            yield Button("Add Command", id="config-add-command", variant="primary")
                         yield Vertical(id="config-command-rows")
                     with Horizontal(id="config-editor-actions"):
                         yield Button("Save", id="config-save", variant="success", disabled=True)
@@ -1195,10 +1195,6 @@ class SerialHubApp(App[None]):
                             summary_function=_sparkline_signed_peak,
                         )
 
-                    # with Vertical(
-                    #     id="workspace-toolbar-actions",
-                    #     classes="workspace-toolbar-widget-buttons",
-                    # ):
                     with Horizontal(id="workspace-toolbar-buttons"):
                         yield Button(
                             "Clear",
@@ -1286,7 +1282,7 @@ class SerialHubApp(App[None]):
             return
 
         if self.require_login:
-            self.call_after_refresh(self._show_startup_login)
+            self._show_startup_login()
 
     def action_refresh_devices(self) -> None:
         self._refresh_devices_ui()

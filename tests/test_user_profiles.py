@@ -224,6 +224,18 @@ def test_login_screen_creates_user_and_updates_main_ui(monkeypatch, tmp_path) ->
     asyncio.run(scenario())
 
 
+def test_startup_login_screen_is_available_without_refresh_delay(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
+
+    async def scenario() -> None:
+        app = SerialHubApp()
+
+        async with app.run_test():
+            assert isinstance(app.screen, UserLoginScreen)
+
+    asyncio.run(scenario())
+
+
 def test_remembered_user_skips_login_screen(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
     create_user_profile("alice")

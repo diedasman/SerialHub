@@ -216,7 +216,7 @@ class TcpConnection:
         writer.close()
         try:
             await asyncio.wait_for(writer.wait_closed(), timeout=_CLOSE_WAIT_TIMEOUT_SECONDS)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self._abort_writer(writer)
         except Exception:
             self._abort_writer(writer)

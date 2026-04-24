@@ -3,8 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from serialhub.logging.paths import sanitize_log_filename
-from serialhub.logging.paths import build_log_filename, resolve_log_destination
+from serialhub.logging.paths import build_log_filename, resolve_log_destination, sanitize_log_filename
 
 
 def test_sanitize_log_filename() -> None:

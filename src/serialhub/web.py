@@ -25,7 +25,7 @@ def run_web_app(
     open_browser: bool = True,
 ) -> None:
     try:
-        from textual_serve.server import Server # type: ignore
+        from textual_serve.server import Server  # type: ignore
     except ImportError as exc:  # pragma: no cover - depends on installed extras
         raise RuntimeError(
             "Browser mode requires `textual-serve`. Reinstall SerialHub dependencies and try again."

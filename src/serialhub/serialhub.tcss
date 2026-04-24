@@ -76,14 +76,6 @@ TabPane {
     margin-right: 1;
 }
 
-.workspace-toolbar-widget-buttons {
-    height: auto;
-    border: round $secondary;
-    padding: 0 0;
-    margin-right: 1;
-    # margin-top: 1;
-}
-
 #workspace-connection-widget {
     width: 16;
     # min-width: 24;
@@ -214,13 +206,6 @@ TabPane {
     color: $warning;
 }
 
-#workspace-toolbar-actions {
-    layout: horizontal;
-    width: 28;
-    height: 4;
-    content-align: left top;
-}
-
 #workspace-toolbar-buttons {
     layout: horizontal;
     height: auto;
@@ -245,8 +230,7 @@ TabPane {
     height: auto;
 }
 
-.stack-row,
-#config-editor-toolbar {
+.stack-row {
     height: auto;
 }
 
@@ -321,10 +305,6 @@ TabPane {
 #workspace-placeholder {
     # content-align: right bottom;
     content-align: center middle;
-}
-
-#logo {
-        
 }
 
 .workspace-placeholder-text {
@@ -486,6 +466,7 @@ TabPane {
 
 #config-editor-scroll {
     height: 1fr;
+    border: round $secondary;
 }
 
 #config-name-row {
@@ -516,8 +497,8 @@ TabPane {
 .config-input-label {
     width: 10;
     height: 3;
-    border: round $secondary;
-    color: $secondary;
+    border: round $accent;
+    color: $accent;
     content-align: center middle;
 }
 
@@ -562,6 +543,7 @@ TabPane {
     min-height: 16;
     border: solid $secondary;
     background: $background;
+    margin-bottom: 0;
 }
 
 #config-editor-preview {
@@ -608,13 +590,4 @@ TabPane {
     width: 1fr;
     background: $background;
     color: $foreground;
-}
-
-#footer-brand {
-    width: auto;
-    min-width: 30;
-    content-align: right middle;
-    background: $surface;
-    color: $accent;
-    padding-right: 1;
 }
