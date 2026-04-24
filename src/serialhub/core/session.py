@@ -6,6 +6,8 @@ from serialhub.core.models import ConnectionConfig, DeviceTransport, SerialEvent
 from serialhub.logging.session_logger import SessionLogger
 
 WORKSPACE_DATASTREAM_WINDOW = 32
+WORKSPACE_DATASTREAM_DECAY = 0.55
+WORKSPACE_DATASTREAM_IDLE_FLOOR = 0.15
 
 
 @dataclass(slots=True)
@@ -42,14 +44,18 @@ class WorkspaceDatastream:
         return False
 
     def tick(self) -> None:
-        self._append(self.rx_samples, 0.0)
-        self._append(self.tx_samples, 0.0)
+        self._append(self.rx_samples, self._decayed_tail(self.rx_samples))
+        self._append(self.tx_samples, self._decayed_tail(self.tx_samples))
 
     def _append(self, samples: list[float], value: float) -> None:
         samples.append(value)
         overflow = len(samples) - self.window_size
         if overflow > 0:
             del samples[:overflow]
+
+    def _decayed_tail(self, samples: list[float]) -> float:
+        value = samples[-1] * WORKSPACE_DATASTREAM_DECAY if samples else 0.0
+        return value if value >= WORKSPACE_DATASTREAM_IDLE_FLOOR else 0.0
 
 
 @dataclass(slots=True)

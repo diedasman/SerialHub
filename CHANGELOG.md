@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [Unreleased] - 2026-04-24
+
+### Added
+
+- Added the active username to the `User Settings` screen in a bordered summary row.
+- Added a `Copy Workspace` action that copies the active workspace stream to Textual's clipboard.
+- Added a Windows packaged-app PowerShell launch scaffold for opening SerialHub in a console sized for the TUI.
+
+### Changed
+
+- Reworked `User Settings` labels into horizontal label/control rows.
+- Smoothed workspace activity sparklines by decaying samples toward idle between events.
+- Updated sparkline idle coloring so old TX/RX samples do not keep the baseline painted as active.
+
+### Fixed
+
+- Fixed TX sparkline coloring by using positive magnitudes for TX-only activity and signed values only when RX and TX are both active.
+
+---
+
 ## [Unreleased] - 2026-04-23
 
 ### Added

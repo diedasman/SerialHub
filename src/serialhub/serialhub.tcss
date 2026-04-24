@@ -36,6 +36,10 @@ Screen {
     text-style: bold;
 }
 
+#settings-modal {
+    width: 50%;
+}
+
 #connection-tabs{
     height: 1fr;
     margin-top: 1;
@@ -178,32 +182,29 @@ TabPane {
     color: $success;
 }
 
-#workspace-io-sparkline {
+.workspace-direction-sparkline {
     width: 1fr;
-    height: 3;
+    height: 1;
 }
 
-#workspace-io-sparkline.-idle > .sparkline--max-color,
-#workspace-io-sparkline.-idle > .sparkline--min-color {
-    color: $warning;
+#workspace-rx-sparkline {
+    margin-bottom: 1;
+    # margin-top: 1;
 }
 
-#workspace-io-sparkline.-rx-only > .sparkline--max-color,
-#workspace-io-sparkline.-duplex > .sparkline--max-color {
+.workspace-direction-sparkline.-idle > .sparkline--max-color,
+.workspace-direction-sparkline.-idle > .sparkline--min-color {
+    color: $panel-lighten-1;
+}
+
+#workspace-rx-sparkline.-active > .sparkline--max-color,
+#workspace-rx-sparkline.-active > .sparkline--min-color {
     color: $error;
 }
 
-#workspace-io-sparkline.-tx-only > .sparkline--max-color {
-    color: $warning;
-}
-
-#workspace-io-sparkline.-tx-only > .sparkline--min-color,
-#workspace-io-sparkline.-duplex > .sparkline--min-color {
+#workspace-tx-sparkline.-active > .sparkline--max-color,
+#workspace-tx-sparkline.-active > .sparkline--min-color {
     color: $success;
-}
-
-#workspace-io-sparkline.-rx-only > .sparkline--min-color {
-    color: $warning;
 }
 
 #workspace-toolbar-buttons {
@@ -360,6 +361,15 @@ TabPane {
     margin-bottom: 0;
     margin-right: 1;
     margin-left: 2;
+}
+
+#copy-workspace-btn {
+    width: auto;
+    min-width: 16;
+    margin-top: 0;
+    margin-bottom: 0;
+    margin-right: 1;
+    margin-left: 1;
 }
 
 .command-button {

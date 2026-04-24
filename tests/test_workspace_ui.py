@@ -39,6 +39,15 @@ def static_text(widget: Static) -> str:
         )
 
 
+def sparkline_color(widget: Sparkline) -> str:
+    renderable = widget.render()
+    color = renderable.max_color.color
+    triplet = color.triplet if color is not None else None
+    if triplet is None:
+        return ""
+    return f"#{triplet.red:02x}{triplet.green:02x}{triplet.blue:02x}"
+
+
 class FakeDeviceManager:
     def __init__(self) -> None:
         self.connected: set[str] = set()
@@ -122,11 +131,37 @@ def test_user_settings_button_opens_and_closes_screen(monkeypatch, tmp_path) -> 
 
             app.query_one("#user-settings-btn", Button).press()
             await pilot.pause()
+            await pilot.pause()
             assert isinstance(app.screen, UserSettingsScreen)
 
             app.screen.action_close_settings()
             await pilot.pause()
             assert not isinstance(app.screen, UserSettingsScreen)
+
+    asyncio.run(scenario())
+
+
+def test_user_settings_screen_shows_current_user_and_horizontal_fields(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
+    profile = create_user_profile("alice")
+
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False, startup_user=profile)
+        app.device_manager = FakeDeviceManager()
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            app.query_one("#user-settings-btn", Button).press()
+            await pilot.pause()
+
+            assert isinstance(app.screen, UserSettingsScreen)
+            user_summary = app.screen.query_one("#settings-current-user", Static)
+            label = app.screen.query_one(".settings-input-label", Static)
+            startup = app.screen.query_one("#settings-startup-command", Select)
+
+            assert static_text(user_summary) == "user: alice"
+            assert abs(label.region.y - startup.region.y) <= 1
 
     asyncio.run(scenario())
 
@@ -520,6 +555,7 @@ def test_workspace_log_scroll_does_not_jump_when_user_is_reading_history() -> No
                     )
                 )
             await pilot.pause()
+            await pilot.pause()
 
             raw_log = app._workspace_logs["COM1"]
             raw_log.auto_scroll = False
@@ -626,6 +662,7 @@ def test_user_settings_save_persists_startup_command_theme_and_log_folder(monkey
 
             app.query_one("#user-settings-btn", Button).press()
             await pilot.pause()
+            await pilot.pause()
             assert isinstance(app.screen, UserSettingsScreen)
 
             app.screen.query_one("#settings-startup-command", Select).value = "alice_cmds"
@@ -684,7 +721,34 @@ def test_clear_console_button_clears_active_workspace_history() -> None:
     asyncio.run(scenario())
 
 
-def test_current_user_summary_is_positioned_below_workspace_selection(monkeypatch, tmp_path) -> None:
+def test_copy_workspace_button_copies_active_workspace_stream_to_clipboard() -> None:
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False)
+        app.device_manager = FakeDeviceManager()
+        copied: list[str] = []
+        app.copy_to_clipboard = copied.append
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app.query_one("#copy-workspace-btn", Button).disabled is True
+
+            app._connect_selected_device()
+            app._handle_serial_event_ui(
+                SerialEvent(device_id="COM1", port="COM1", direction="RX", payload=b"hello")
+            )
+            await pilot.pause()
+
+            assert app.query_one("#copy-workspace-btn", Button).disabled is False
+            app.query_one("#copy-workspace-btn", Button).press()
+            await pilot.pause()
+
+            assert len(copied) == 1
+            assert copied[0].endswith("hello")
+
+    asyncio.run(scenario())
+
+
+def test_current_user_summary_is_positioned_beside_workspace_selection(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
     profile = create_user_profile("alice")
 
@@ -696,8 +760,8 @@ def test_current_user_summary_is_positioned_below_workspace_selection(monkeypatc
             await pilot.pause()
             workspace = app.query_one("#workspace-selection")
             summary = app.query_one("#current-user-summary")
-            assert abs(summary.region.x - workspace.region.x) <= 2
-            assert summary.region.y > workspace.region.y
+            assert summary.region.x > workspace.region.x
+            assert abs(summary.region.y - workspace.region.y) <= 1
 
     asyncio.run(scenario())
 
@@ -753,7 +817,7 @@ def test_connection_switch_reflects_active_workspace_connection_state() -> None:
     asyncio.run(scenario())
 
 
-def test_workspace_activity_indicators_and_combined_sparkline_follow_rx_tx_activity_and_flatten_when_idle(
+def test_workspace_activity_widget_tracks_rx_tx_rows_and_flattens_when_idle(
 ) -> None:
     async def scenario() -> None:
         app = SerialHubApp(require_login=False)
@@ -763,7 +827,8 @@ def test_workspace_activity_indicators_and_combined_sparkline_follow_rx_tx_activ
             connection_widget = app.query_one("#workspace-connection-widget")
             rule = app.query_one("#connection-status-rule")
             data_widget = app.query_one("#workspace-data-widget")
-            sparkline = app.query_one("#workspace-io-sparkline", Sparkline)
+            rx_sparkline = app.query_one("#workspace-rx-sparkline", Sparkline)
+            tx_sparkline = app.query_one("#workspace-tx-sparkline", Sparkline)
             rx_label = app.query_one("#workspace-rx-label", Static)
             tx_label = app.query_one("#workspace-tx-label", Static)
             rx_activity = app.query_one("#workspace-rx-activity", WorkspaceActivityIndicator)
@@ -774,13 +839,18 @@ def test_workspace_activity_indicators_and_combined_sparkline_follow_rx_tx_activ
             assert tx_label.region.height > 0
             assert rx_label.region.bottom <= connection_widget.region.bottom
             assert tx_label.region.bottom <= connection_widget.region.bottom
-            assert all(value == 0.0 for value in list(sparkline.data or []))
+            assert all(value == 0.0 for value in list(rx_sparkline.data or []))
+            assert all(value == 0.0 for value in list(tx_sparkline.data or []))
             assert rx_label.has_class("-off") is True
             assert tx_label.has_class("-off") is True
             assert rx_activity.value is False
             assert tx_activity.value is False
             assert rx_activity.can_focus is False
             assert tx_activity.can_focus is False
+            assert rx_sparkline.has_class("-idle") is True
+            assert tx_sparkline.has_class("-idle") is True
+            idle_color = sparkline_color(rx_sparkline)
+            assert idle_color == sparkline_color(tx_sparkline)
 
             app._connect_selected_device()
             app._handle_serial_event_ui(
@@ -791,23 +861,65 @@ def test_workspace_activity_indicators_and_combined_sparkline_follow_rx_tx_activ
             )
             await pilot.pause()
 
-            data = list(sparkline.data or [])
-            assert max(data or [0.0]) >= 5.0
-            assert min(data or [0.0]) <= -2.0
+            rx_data = list(rx_sparkline.data or [])
+            tx_data = list(tx_sparkline.data or [])
+            assert max(rx_data or [0.0]) >= 5.0
+            assert max(tx_data or [0.0]) >= 2.0
+            assert all(value >= 0.0 for value in rx_data)
+            assert all(value >= 0.0 for value in tx_data)
             assert rx_label.has_class("-on") is True
             assert tx_label.has_class("-on") is True
             assert rx_activity.value is True
             assert tx_activity.value is True
+            assert rx_sparkline.has_class("-active") is True
+            assert tx_sparkline.has_class("-active") is True
+            assert sparkline_color(rx_sparkline) != idle_color
+            assert sparkline_color(tx_sparkline) != idle_color
+            assert sparkline_color(rx_sparkline) != sparkline_color(tx_sparkline)
+
+            app._advance_workspace_datastreams()
+            await pilot.pause()
+            assert any(0.0 < value < 2.0 for value in list(tx_sparkline.data or []))
 
             for _ in range(40):
                 app._advance_workspace_datastreams()
             await pilot.pause()
 
-            assert all(value == 0.0 for value in list(sparkline.data or []))
+            assert all(value == 0.0 for value in list(rx_sparkline.data or []))
+            assert all(value == 0.0 for value in list(tx_sparkline.data or []))
             assert rx_label.has_class("-off") is True
             assert tx_label.has_class("-off") is True
             assert rx_activity.value is False
             assert tx_activity.value is False
+            assert rx_sparkline.has_class("-idle") is True
+            assert tx_sparkline.has_class("-idle") is True
+
+    asyncio.run(scenario())
+
+
+def test_tx_only_workspace_datastream_keeps_rx_row_idle_and_tx_row_positive() -> None:
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False)
+        app.device_manager = FakeDeviceManager()
+
+        async with app.run_test() as pilot:
+            rx_sparkline = app.query_one("#workspace-rx-sparkline", Sparkline)
+            tx_sparkline = app.query_one("#workspace-tx-sparkline", Sparkline)
+
+            app._connect_selected_device()
+            app._handle_serial_event_ui(
+                SerialEvent(device_id="COM1", port="COM1", direction="TX", payload=b"stream")
+            )
+            await pilot.pause()
+
+            rx_data = list(rx_sparkline.data or [])
+            tx_data = list(tx_sparkline.data or [])
+            assert rx_sparkline.has_class("-idle") is True
+            assert tx_sparkline.has_class("-active") is True
+            assert max(rx_data or [0.0]) == 0.0
+            assert max(tx_data or [0.0]) == 6.0
+            assert min(tx_data or [0.0]) == 0.0
+            assert all(value >= 0.0 for value in tx_data)
 
     asyncio.run(scenario())
 

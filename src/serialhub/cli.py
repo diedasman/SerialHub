@@ -5,6 +5,7 @@ import argparse
 from serialhub.app import SerialHubApp
 from serialhub.updater import update_from_git_checkout
 from serialhub.web import DEFAULT_WEB_HOST, DEFAULT_WEB_PORT, run_web_app
+from serialhub.windows_terminal import maybe_relaunch_in_sized_powershell
 
 
 def parse_port(value: str) -> int:
@@ -52,6 +53,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "update":
         return update_from_git_checkout()
+
+    if not args.web and maybe_relaunch_in_sized_powershell(argv):
+        return 0
 
     if args.web:
         run_web_app(host=args.host, port=args.port)

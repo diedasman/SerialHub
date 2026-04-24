@@ -95,11 +95,6 @@ _NO_STARTUP_COMMAND_CONFIG = "__none__"
 _WORKSPACE_IDLE_TICK_SECONDS = 0.75
 
 
-def _sparkline_signed_peak(values: Sequence[float]) -> float:
-    """Keep the strongest signed activity sample in each sparkline bucket."""
-    return max(values, key=abs, default=0.0)
-
-
 def load_ascii_logo() -> str:
     """Load the packaged ASCII logo text."""
     try:
@@ -317,14 +312,34 @@ class UserSettingsScreen(ModalScreen[None]):
         margin-bottom: 1;
     }
 
+    #settings-user-row {
+        height: auto;
+        border: round $secondary;
+        padding: 0 1;
+        margin-bottom: 1;
+    }
+
+    #settings-current-user {
+        width: 1fr;
+        color: $accent;
+    }
+
+    .settings-field-row {
+        height: auto;
+        margin-bottom: 1;
+    }
+
     .settings-input-label {
-        margin-top: 1;
+        width: 22;
+        height: 3;
+        content-align: left middle;
+        color: $secondary;
     }
 
     #settings-startup-command,
     #settings-theme,
     #settings-log-folder {
-        margin-bottom: 1;
+        width: 1fr;
     }
 
     #settings-actions {
@@ -350,12 +365,14 @@ class UserSettingsScreen(ModalScreen[None]):
         startup_command_config: str,
         theme_mode: str,
         log_folder: str,
+        username: str,
     ) -> None:
         super().__init__()
         self._command_configs = tuple(command_configs)
         self._startup_command_config = startup_command_config
         self._theme_mode = normalize_theme_mode(theme_mode)
         self._log_folder = log_folder
+        self._username = username
 
     def compose(self) -> ComposeResult:
         startup_options = [("Do not auto-load a command file", _NO_STARTUP_COMMAND_CONFIG)]
@@ -374,26 +391,31 @@ class UserSettingsScreen(ModalScreen[None]):
                 "Set the defaults used when this user profile signs in.",
                 id="settings-message",
             )
-            yield Static("STARTUP COMMAND FILE", classes="settings-input-label")
-            yield Select(
-                startup_options,
-                value=startup_value,
-                allow_blank=False,
-                id="settings-startup-command",
-            )
-            yield Static("DEFAULT THEME", classes="settings-input-label")
-            yield Select(
-                [("Dark", "dark"), ("Light", "light")],
-                value=self._theme_mode,
-                allow_blank=False,
-                id="settings-theme",
-            )
-            yield Static("DEFAULT LOG FOLDER", classes="settings-input-label")
-            yield Input(
-                value=self._log_folder,
-                placeholder="Leave blank to use the per-user logs folder",
-                id="settings-log-folder",
-            )
+            with Horizontal(id="settings-user-row"):
+                yield Static(f"user: {self._username}", id="settings-current-user")
+            with Horizontal(classes="settings-field-row"):
+                yield Static("STARTUP COMMAND FILE", classes="settings-input-label")
+                yield Select(
+                    startup_options,
+                    value=startup_value,
+                    allow_blank=False,
+                    id="settings-startup-command",
+                )
+            with Horizontal(classes="settings-field-row"):
+                yield Static("DEFAULT THEME", classes="settings-input-label")
+                yield Select(
+                    [("Dark", "dark"), ("Light", "light")],
+                    value=self._theme_mode,
+                    allow_blank=False,
+                    id="settings-theme",
+                )
+            with Horizontal(classes="settings-field-row"):
+                yield Static("DEFAULT LOG FOLDER", classes="settings-input-label")
+                yield Input(
+                    value=self._log_folder,
+                    placeholder="Leave blank to use the per-user logs folder",
+                    id="settings-log-folder",
+                )
             with Horizontal(id="settings-actions"):
                 yield Button("Save and Exit", id="settings-save", variant="success")
                 yield Button("Close", id="settings-close", variant="default")
@@ -1191,8 +1213,13 @@ class SerialHubApp(App[None]):
                     with Vertical(id="workspace-data-widget", classes="workspace-toolbar-widget"):
                         yield Sparkline(
                             [0.0] * WORKSPACE_DATASTREAM_WINDOW,
-                            id="workspace-io-sparkline",
-                            summary_function=_sparkline_signed_peak,
+                            id="workspace-rx-sparkline",
+                            classes="workspace-direction-sparkline -idle",
+                        )
+                        yield Sparkline(
+                            [0.0] * WORKSPACE_DATASTREAM_WINDOW,
+                            id="workspace-tx-sparkline",
+                            classes="workspace-direction-sparkline -idle",
                         )
 
                     with Horizontal(id="workspace-toolbar-buttons"):
@@ -1247,6 +1274,8 @@ class SerialHubApp(App[None]):
                     yield Checkbox("Timestamps", value=True, id="timestamp-checkbox")
                     yield Input(placeholder="Log folder or .txt path", id="log-filepath")
                     yield Button("Start Logging", id="toggle-logging")
+
+                    yield Button("Copy Workspace", id="copy-workspace-btn", variant="default", disabled=True)
 
                 with Horizontal(id="workspace-status"):
                     yield Static("No device workspaces open.", id="workspace-selection", classes="hint")
@@ -1339,6 +1368,7 @@ class SerialHubApp(App[None]):
                 startup_command_config=self.current_user.startup_command_config,
                 theme_mode=self.theme_mode,
                 log_folder=self.current_user.log_folder,
+                username=self.current_user.username,
             )
         )
 
@@ -1433,6 +1463,10 @@ class SerialHubApp(App[None]):
 
         if button_id == "toggle-logging":
             self._toggle_logging_for_active_session()
+            return
+
+        if button_id == "copy-workspace-btn":
+            self._copy_active_workspace_to_clipboard()
             return
 
         if button_id == "config-editor-btn":
@@ -2037,6 +2071,26 @@ class SerialHubApp(App[None]):
         self._refresh_workspace_state(session.device_id)
         self.notify(f"Cleared console for {session.device_id}")
 
+    def _copy_active_workspace_to_clipboard(self) -> None:
+        session = self._get_active_session()
+        if not session:
+            self.notify("No active workspace selected.", severity="warning")
+            return
+
+        workspace_text = self._active_workspace_text(session)
+        if not workspace_text:
+            self.notify("Active workspace has no data to copy.", severity="warning")
+            return
+
+        self.copy_to_clipboard(workspace_text)
+        self.notify(f"Copied workspace for {session.device_id}.")
+
+    def _active_workspace_text(self, session: DeviceSession) -> str:
+        lines: list[str] = []
+        for event in session.raw_events:
+            lines.extend(self._render_raw_event_lines(session, event))
+        return "\n".join(lines)
+
     def _send_current_input(self) -> None:
         device_id = self.active_device_id
         if not device_id:
@@ -2473,26 +2527,12 @@ class SerialHubApp(App[None]):
     def _empty_workspace_feed(self) -> list[float]:
         return [0.0] * WORKSPACE_DATASTREAM_WINDOW
 
-    def _combined_workspace_feed(self, session: DeviceSession) -> list[float]:
-        return [
-            rx_sample if rx_sample > 0 else (-tx_sample if tx_sample > 0 else 0.0)
-            for rx_sample, tx_sample in zip(
-                session.workspace_datastream.rx_samples,
-                session.workspace_datastream.tx_samples,
-            )
-        ]
-
     def _line_has_recent_activity(self, samples: Sequence[float], window: int = 4) -> bool:
-        return any(value > 0 for value in samples[-window:])
+        return any(value >= 1.0 for value in samples[-window:])
 
-    def _set_workspace_sparkline_state(self, sparkline: Sparkline, session: DeviceSession | None) -> None:
-        rx_active = bool(session and any(sample > 0 for sample in session.workspace_datastream.rx_samples))
-        tx_active = bool(session and any(sample > 0 for sample in session.workspace_datastream.tx_samples))
-
-        sparkline.set_class(not rx_active and not tx_active, "-idle")
-        sparkline.set_class(rx_active and not tx_active, "-rx-only")
-        sparkline.set_class(tx_active and not rx_active, "-tx-only")
-        sparkline.set_class(rx_active and tx_active, "-duplex")
+    def _set_workspace_datastream_row_state(self, sparkline: Sparkline, active: bool) -> None:
+        sparkline.set_class(active, "-active")
+        sparkline.set_class(not active, "-idle")
 
     def _advance_workspace_datastreams(self) -> None:
         if self._shutting_down or not self.sessions:
@@ -2511,7 +2551,8 @@ class SerialHubApp(App[None]):
             tx_label = self._query_ui("#workspace-tx-label", Static)
             rx_activity = self._query_ui("#workspace-rx-activity", WorkspaceActivityLed)
             tx_activity = self._query_ui("#workspace-tx-activity", WorkspaceActivityLed)
-            sparkline = self._query_ui("#workspace-io-sparkline", Sparkline)
+            rx_sparkline = self._query_ui("#workspace-rx-sparkline", Sparkline)
+            tx_sparkline = self._query_ui("#workspace-tx-sparkline", Sparkline)
         except NoMatches:
             return
 
@@ -2525,8 +2566,10 @@ class SerialHubApp(App[None]):
             tx_label.set_class(True, "-off")
             rx_activity.active = False
             tx_activity.active = False
-            sparkline.data = self._empty_workspace_feed()
-            self._set_workspace_sparkline_state(sparkline, None)
+            rx_sparkline.data = self._empty_workspace_feed()
+            tx_sparkline.data = self._empty_workspace_feed()
+            self._set_workspace_datastream_row_state(rx_sparkline, False)
+            self._set_workspace_datastream_row_state(tx_sparkline, False)
             return
 
         session = self.sessions.get(self.active_device_id)
@@ -2540,8 +2583,10 @@ class SerialHubApp(App[None]):
             tx_label.set_class(True, "-off")
             rx_activity.active = False
             tx_activity.active = False
-            sparkline.data = self._empty_workspace_feed()
-            self._set_workspace_sparkline_state(sparkline, None)
+            rx_sparkline.data = self._empty_workspace_feed()
+            tx_sparkline.data = self._empty_workspace_feed()
+            self._set_workspace_datastream_row_state(rx_sparkline, False)
+            self._set_workspace_datastream_row_state(tx_sparkline, False)
             return
 
         connected = self._is_device_connected(self.active_device_id)
@@ -2556,8 +2601,10 @@ class SerialHubApp(App[None]):
         tx_label.set_class(not tx_recent, "-off")
         rx_activity.active = rx_recent
         tx_activity.active = tx_recent
-        sparkline.data = self._combined_workspace_feed(session)
-        self._set_workspace_sparkline_state(sparkline, session)
+        rx_sparkline.data = list(session.workspace_datastream.rx_samples)
+        tx_sparkline.data = list(session.workspace_datastream.tx_samples)
+        self._set_workspace_datastream_row_state(rx_sparkline, rx_recent)
+        self._set_workspace_datastream_row_state(tx_sparkline, tx_recent)
 
     def _refresh_workspace_state(self, device_id: str) -> None:
         self._render_workspace_session(device_id, preserve_scroll=True)
@@ -2606,12 +2653,14 @@ class SerialHubApp(App[None]):
             summary = self._query_ui("#workspace-selection", Static)
             clear_button = self._query_ui("#clear-console-btn", Button)
             close_button = self._query_ui("#close-active-workspace", Button)
+            copy_button = self._query_ui("#copy-workspace-btn", Button)
         except NoMatches:
             return
         if not self.active_device_id:
             summary.update("No device workspaces open.")
             clear_button.disabled = True
             close_button.disabled = True
+            copy_button.disabled = True
             self._refresh_workspace_toolbar()
             return
 
@@ -2619,6 +2668,7 @@ class SerialHubApp(App[None]):
         summary.update(f"Active workspace: {self.active_device_id} ({state})")
         clear_button.disabled = False
         close_button.disabled = False
+        copy_button.disabled = False
         self._refresh_workspace_toolbar()
 
     def _remove_workspace_placeholder(self) -> None:
