@@ -2,11 +2,13 @@ import asyncio
 import json
 from types import SimpleNamespace
 
+from textual.css.query import NoMatches
 from textual.widgets import Button, Input, Select, Sparkline, Static, TabbedContent
 
 from serialhub.app import (
     ConfigEditorScreen,
     ConnectionStatusSwitch,
+    DeleteConfigConfirmScreen,
     SerialHubApp,
     UserSettingsScreen,
     WorkspaceActivityIndicator,
@@ -46,6 +48,43 @@ def sparkline_color(widget: Sparkline) -> str:
     if triplet is None:
         return ""
     return f"#{triplet.red:02x}{triplet.green:02x}{triplet.blue:02x}"
+
+
+async def wait_for_query(root, selector: str, expect_type, pilot, *, attempts: int = 8):
+    for _ in range(attempts):
+        try:
+            return root.query_one(selector, expect_type)
+        except NoMatches:
+            await pilot.pause()
+    return root.query_one(selector, expect_type)
+
+
+async def wait_for_screen(app: SerialHubApp, screen_type, pilot, *, attempts: int = 8):
+    for _ in range(attempts):
+        if isinstance(app.screen, screen_type):
+            return app.screen
+        await pilot.pause()
+    assert isinstance(app.screen, screen_type)
+    return app.screen
+
+
+async def wait_for_condition(condition, pilot, *, attempts: int = 8) -> None:
+    for _ in range(attempts):
+        if condition():
+            return
+        await pilot.pause()
+    assert condition()
+
+
+async def load_config_document(screen: ConfigEditorScreen, path, pilot, *, attempts: int = 8) -> None:
+    for _ in range(attempts):
+        screen._display_document_for_path(path)
+        await pilot.pause()
+        if screen.selected_path == path:
+            await pilot.pause()
+            if screen.selected_path == path:
+                return
+    assert screen.selected_path == path
 
 
 class FakeDeviceManager:
@@ -153,12 +192,10 @@ def test_user_settings_screen_shows_current_user_and_horizontal_fields(monkeypat
             await pilot.pause()
 
             app.query_one("#user-settings-btn", Button).press()
-            await pilot.pause()
-
-            assert isinstance(app.screen, UserSettingsScreen)
-            user_summary = app.screen.query_one("#settings-current-user", Static)
-            label = app.screen.query_one(".settings-input-label", Static)
-            startup = app.screen.query_one("#settings-startup-command", Select)
+            screen = await wait_for_screen(app, UserSettingsScreen, pilot)
+            user_summary = await wait_for_query(screen, "#settings-current-user", Static, pilot)
+            label = await wait_for_query(screen, ".settings-input-label", Static, pilot)
+            startup = await wait_for_query(screen, "#settings-startup-command", Select, pilot)
 
             assert static_text(user_summary) == "user: alice"
             assert abs(label.region.y - startup.region.y) <= 1
@@ -196,9 +233,7 @@ def test_config_editor_loads_focused_file_into_structured_form(monkeypatch, tmp_
             await pilot.pause()
 
             assert isinstance(app.screen, ConfigEditorScreen)
-            app.screen._display_document_for_path(command_path)
-            await pilot.pause()
-            await pilot.pause()
+            await load_config_document(app.screen, command_path, pilot)
 
             assert app.screen.query_one("#config-name-input", Input).value == "DEFAULTS"
             assert app.screen.query_one("#config-command-label-1", Input).value == "PING"
@@ -300,9 +335,7 @@ def test_config_editor_delete_button_removes_command_row(monkeypatch, tmp_path) 
             await pilot.pause()
 
             assert isinstance(app.screen, ConfigEditorScreen)
-            app.screen._display_document_for_path(command_path)
-            await pilot.pause()
-            await pilot.pause()
+            await load_config_document(app.screen, command_path, pilot)
 
             delete_button = app.screen.query_one("#config-command-delete-1", Button)
             assert delete_button.label.plain.strip() == "X"
@@ -340,18 +373,16 @@ def test_config_editor_delete_button_removes_selected_file_after_confirmation(mo
             await pilot.pause()
 
             assert isinstance(app.screen, ConfigEditorScreen)
-            app.screen._display_document_for_path(command_path)
-            await pilot.pause()
-            await pilot.pause()
+            await load_config_document(app.screen, command_path, pilot)
 
-            await pilot.click("#config-delete")
-            await pilot.pause()
+            app.screen.query_one("#config-delete", Button).press()
+            delete_screen = await wait_for_screen(app, DeleteConfigConfirmScreen, pilot)
+            delete_message = await wait_for_query(delete_screen, "#config-delete-message", Static, pilot)
+            assert "alice_cmds.json" in static_text(delete_message)
 
-            assert "alice_cmds.json" in static_text(app.screen.query_one("#config-delete-message", Static))
-
-            await pilot.click("#config-delete-yes")
-            await pilot.pause()
-            await pilot.pause()
+            delete_screen.query_one("#config-delete-yes", Button).press()
+            await wait_for_screen(app, ConfigEditorScreen, pilot)
+            await wait_for_condition(lambda: command_path.exists() is False, pilot)
 
             assert isinstance(app.screen, ConfigEditorScreen)
             assert command_path.exists() is False
@@ -401,15 +432,13 @@ def test_config_editor_resets_input_view_when_loading_new_values(monkeypatch, tm
             await pilot.pause()
 
             assert isinstance(app.screen, ConfigEditorScreen)
-            app.screen._display_document_for_path(first_path)
-            await pilot.pause()
+            await load_config_document(app.screen, first_path, pilot)
 
             value_input = app.screen.query_one("#config-command-value-1", Input)
             value_input.cursor_position = len(value_input.value)
             value_input.view_position = 4
 
-            app.screen._display_document_for_path(second_path)
-            await pilot.pause()
+            await load_config_document(app.screen, second_path, pilot)
 
             next_input = app.screen.query_one("#config-command-value-1", Input)
             assert next_input.value == "CMD"
@@ -433,9 +462,7 @@ def test_config_editor_edits_existing_file_without_raw_json_changes(monkeypatch,
             await pilot.pause()
             assert isinstance(app.screen, ConfigEditorScreen)
 
-            app.screen._display_document_for_path(command_path)
-            await pilot.pause()
-            await pilot.pause()
+            await load_config_document(app.screen, command_path, pilot)
 
             app.screen.query_one("#config-name-input", Input).value = "Updated Defaults"
             app.screen.query_one("#config-command-label-1", Input).value = "PING"
@@ -443,10 +470,8 @@ def test_config_editor_edits_existing_file_without_raw_json_changes(monkeypatch,
             await pilot.pause()
 
             app.screen.query_one("#config-save", Button).press()
-            await pilot.pause()
-            await pilot.pause()
-
             saved_path = get_user_command_config_path("alice", "Updated Defaults")
+            await wait_for_condition(saved_path.exists, pilot)
             saved_payload = json.loads(saved_path.read_text(encoding="utf-8"))
             assert saved_payload["NAME"] == "Updated Defaults"
             assert saved_payload["COMMANDS"]["PING"] == "ping now\r\n"

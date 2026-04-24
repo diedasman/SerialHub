@@ -17,3 +17,4 @@ users/
 # Local app data overrides
 *.log
 TODO.md
+BUILD-ERRORS.md
