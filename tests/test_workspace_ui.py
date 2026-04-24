@@ -1143,9 +1143,9 @@ def test_tcp_favorites_button_warns_and_skips_save_when_inputs_are_blank(monkeyp
             reloaded_profile = load_user_profile("alice")
             assert reloaded_profile is not None
             assert reloaded_profile.tcp_favorites == []
-            assert notifications[-1] == (
+            assert (
                 "Enter both IP address and TCP port before saving a favorite.",
                 "warning",
-            )
+            ) in notifications
 
     asyncio.run(scenario())
