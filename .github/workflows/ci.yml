@@ -72,6 +72,9 @@ jobs:
       - name: Build executable
         shell: pwsh
         run: |
+          $projectRoot = (Get-Location).Path
+          $cssPath = Join-Path $projectRoot "src/serialhub/serialhub.tcss"
+          $assetsPath = Join-Path $projectRoot "src/serialhub/assets"
           python -m PyInstaller `
             --noconfirm `
             --clean `
@@ -81,6 +84,8 @@ jobs:
             --specpath build/pyinstaller `
             --workpath build/pyinstaller `
             --distpath dist `
+            --add-data "${cssPath};serialhub" `
+            --add-data "${assetsPath};serialhub/assets" `
             --collect-all textual `
             --collect-all textual_serve `
             --collect-submodules serial `

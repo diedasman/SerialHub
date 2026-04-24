@@ -103,6 +103,14 @@ def load_ascii_logo() -> str:
         return ""
 
 
+def load_app_css() -> str:
+    """Load the packaged app stylesheet."""
+    try:
+        return files("serialhub").joinpath("serialhub.tcss").read_text(encoding="utf-8")
+    except (FileNotFoundError, ModuleNotFoundError, OSError):
+        return ""
+
+
 @dataclass(slots=True)
 class CommandButtonSpec:
     label: str
@@ -1030,7 +1038,7 @@ class ConfigEditorScreen(Screen[None]):
 
 
 class SerialHubApp(App[None]):
-    CSS_PATH = "serialhub.tcss"
+    CSS = load_app_css()
     ENABLE_COMMAND_PALETTE = False
     WORKSPACE_PLACEHOLDER_ID = "workspace-empty"
     BINDINGS = [

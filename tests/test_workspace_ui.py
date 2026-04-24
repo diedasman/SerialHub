@@ -380,7 +380,8 @@ def test_config_editor_delete_button_removes_selected_file_after_confirmation(mo
             delete_message = await wait_for_query(delete_screen, "#config-delete-message", Static, pilot)
             assert "alice_cmds.json" in static_text(delete_message)
 
-            delete_screen.query_one("#config-delete-yes", Button).press()
+            delete_yes = await wait_for_query(delete_screen, "#config-delete-yes", Button, pilot)
+            delete_yes.press()
             await wait_for_screen(app, ConfigEditorScreen, pilot)
             await wait_for_condition(lambda: command_path.exists() is False, pilot)
 
@@ -1163,7 +1164,13 @@ def test_tcp_favorites_button_warns_and_skips_save_when_inputs_are_blank(monkeyp
             await pilot.pause()
 
             app.query_one("#tcp-favorites-btn", Button).press()
-            await pilot.pause()
+            await wait_for_condition(
+                lambda: (
+                    "Enter both IP address and TCP port before saving a favorite.",
+                    "warning",
+                ) in notifications,
+                pilot,
+            )
 
             reloaded_profile = load_user_profile("alice")
             assert reloaded_profile is not None
