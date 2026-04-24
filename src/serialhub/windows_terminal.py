@@ -9,6 +9,7 @@ DEFAULT_TERMINAL_COLUMNS = 132
 DEFAULT_TERMINAL_LINES = 42
 SIZED_TERMINAL_ENV = "SERIALHUB_SIZED_TERMINAL"
 SKIP_SIZED_TERMINAL_ENV = "SERIALHUB_SKIP_SIZED_TERMINAL"
+PYINSTALLER_RESET_ENV = "PYINSTALLER_RESET_ENVIRONMENT"
 
 
 def powershell_quote(value: str) -> str:
@@ -58,5 +59,9 @@ def maybe_relaunch_in_sized_powershell(argv: Sequence[str] | None = None) -> boo
     args = list(sys.argv[1:] if argv is None else argv)
     env = os.environ.copy()
     env[SIZED_TERMINAL_ENV] = "1"
+    # PyInstaller one-file apps need a reset when they relaunch themselves,
+    # otherwise the new process may inherit a temporary extraction directory
+    # that is cleaned up when the current process exits.
+    env[PYINSTALLER_RESET_ENV] = "1"
     subprocess.Popen(build_sized_powershell_command(sys.executable, args), env=env)  # noqa: S603
     return True
