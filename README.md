@@ -1,8 +1,8 @@
 # SerialHub
 
-SerialHub is a cross-platform serial tool with two local launch modes: the native Textual terminal UI and the same Textual app served in a browser from your machine. It is focused on practical serial and TCP workflows, local user profiles, persistent per-device workspaces, user-defined command configs, and per-device logging.
+SerialHub is a cross-platform serial and TCP terminal built with Textual. It runs either as a native terminal app or as the same Textual UI served locally in a browser, with local user profiles, persistent device workspaces, command-config buttons, and per-device session logging.
 
-```
+```text
                                                                                                     
  ::::::::  :::::::::: :::::::::  :::::::::::     :::     :::        :::    ::: :::    ::: :::::::::  
 :+:    :+: :+:        :+:    :+:     :+:       :+: :+:   :+:        :+:    :+: :+:    :+: :+:    :+: 
@@ -11,155 +11,45 @@ SerialHub is a cross-platform serial tool with two local launch modes: the nativ
        +#+ +#+        +#+    +#+     +#+     +#+     +#+ +#+        +#+    +#+ +#+    +#+ +#+    +#+ 
 #+#    #+# #+#        #+#    #+#     #+#     #+#     #+# #+#        #+#    #+# #+#    #+# #+#    #+# 
  ########  ########## ###    ### ########### ###     ### ########## ###    ###  ########  #########  
- 
 ```
-
-Right now the app is focused on a raw serial workflow:
-
-- Detect USB/serial devices and connect with configurable serial settings
-- Sign in with a local SerialHub user profile and optional remember-me startup
-- Create a dedicated workspace tab for each connected serial device
-- Preserve disconnected device tabs and captured stream history until the user closes them
-- Open a dedicated config editor screen for user command JSON files without losing the main workspace state
-- Trigger user-defined command buttons from per-user JSON config files
-- Log sessions per device with timestamp and data stream
-
-## Tamble of Contents
-
-- [Features](#features)
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [How To Run](#how-to-run)
-- [Updating SerialHub](#updating-serialhub)
-- [Development Setup](#development-setup)
-- [First-Time Setup In The App](#first-time-setup-in-the-app)
-- [Using The Main Workflow](#using-the-main-workflow)
-- [Generated Output Structure](#generated-output-structure)
-- [User Data and Loggin](#user-data-and-logging)
-- [Development Commands](#development-commands)
-- [Repository Standards](#repository-standards)
 
 ## Features
 
-- Dual launch modes:
-  - Textual terminal UI via `serialhub`
-  - The same Textual app in a browser via `serialhub --web`
-- Cross-platform serial tooling (Windows + Linux)
-- Username-based login screen with `Remember Me` and `New User`
-- Local per-user storage under the SerialHub application-data directory
-- Multi-device management with independent sessions
-- Manual refresh and auto-discovery of available serial ports
-- Connection panel tabs for `Serial` and `TCP/IP`
-- Device selection via dynamic dropdown list
-- Serial configuration control:
-  - Baud rate
-  - Parity
-  - Stop bits
-  - Data bits
-- Real-time send/receive terminal flow
-- Hex TX mode via checkbox toggle
-- Dynamic workspace tabs with one raw stream view per device
-- Workspace tabs stay available after disconnect until manually closed
-- Closing a live workspace tab also disconnects the device
-- Textual browser mode via `textual-serve` with automatic browser launch
-- Per-device start/stop logging to `.txt`
-- Log destination input accepts either:
-  - an existing folder path, which generates `<device-id>-YYYYMMDD-HHMMSS.txt`
-  - an explicit `.txt` path, which is used as-is
-- Optional auto-logging on connect (checkbox toggle)
-- Right-side `Functions` panel with:
-  - command-config dropdown sourced from the active user's `COMMAND_CONFIGS`
-  - dynamically generated buttons from nested `COMMANDS` JSON objects
-  - a `CONFIG EDITOR` button for browsing, building, and previewing the active user's command JSON files
-- Timestamp display toggle via checkbox
-- Keyboard shortcuts for message focus, connect/disconnect, logging toggle, logout, and theme toggle
-- Built-in dark and light themes
+- Serial and TCP/IP connection workflows in one app
+- Native terminal mode and browser-served Textual mode
+- Local username-based profiles with optional remember-me startup
+- Persistent per-device workspace tabs and stream history
+- Per-user command-config JSON files and a built-in config editor
+- Per-device logging with automatic filename generation
+- Theme toggle plus keyboard shortcuts for common actions
 
 ## Requirements
 
-- Python `3.12` or newer
-- `pipx` for the recommended end-user install flow
-- `pip` for development installs
-- A terminal that can run Textual apps for CLI mode
-- A modern web browser for browser mode
-- Serial permissions/access on your OS
+- Python `3.12` or newer for development or source-based runs
+- A terminal that can run Textual apps for terminal mode
+- A modern browser for browser mode
+- Serial permissions or device access on your OS
 
-## Installation
+## Releases
 
-### Recommended End-User Install
+Windows executable builds are produced by GitHub Actions in [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
-Clone the repository or download a source snapshot, then install SerialHub with `pipx` from the project root.
+- Pushes to `main` run linting, tests, and a Windows executable build.
+- Manual runs through `workflow_dispatch` also produce the executable artifact.
+- Tags matching `v*` publish the zipped Windows build to GitHub Releases.
+- Built binaries are not committed to the repository.
 
-#### 1. Clone the repository
-
-```powershell
-git clone https://github.com/diedasman/SerialHub.git
-```
-```powershell
-cd SerialHub
-```
-
-Important: the install commands below assume your terminal is inside the project root, the folder that contains `pyproject.toml`.
-
-#### 2. Install `pipx`
-
-Windows PowerShell:
-
-```powershell
-py -m pip install --user pipx
-```
-```powershell
-py -m pipx ensurepath
-```
-
-Linux:
-
-```bash
-python3 -m pip install --user pipx
-python3 -m pipx ensurepath
-```
-
-If this is your first `pipx` install, restart the terminal after `ensurepath`.
-
-#### 3. Install SerialHub globally on your `PATH`
-
-```powershell
-python -m pipx install .
-```
-
-This installs the `serialhub` command in its own isolated environment and exposes it on your `PATH`, so you can run it from any terminal without activating a virtual environment.
-
-You can also use the provided install scripts from the project root:
-
-Windows PowerShell:
-
-```powershell
-.\scripts\install_windows.ps1
-```
-
-Linux:
-
-```bash
-bash ./scripts/install_linux.sh
-```
-
-Browser mode is available immediately after install:
-
-```powershell
-serialhub --web
-```
+For now, Linux usage is source-based rather than distributed as a packaged executable.
 
 ## Development Setup
 
-If you are contributing to the project, use a local virtual environment instead of the end-user `pipx` flow:
+Use a local virtual environment for development and testing.
 
-Windows shortcut from the project root:
+Windows PowerShell shortcut from the project root:
 
 ```powershell
 . .\scripts\dev_setup.ps1
 ```
-
-Dot-source the script so the virtual environment stays active in the current PowerShell session.
 
 Manual setup:
 
@@ -170,124 +60,76 @@ python -m pip install --upgrade pip
 python -m pip install -e .[dev]
 ```
 
-If you are opening the project in VS Code, select the virtual environment interpreter after setup:
+Linux manual setup:
 
-1. Open the command palette.
-2. Run `Python: Select Interpreter`.
-3. Choose `.venv\Scripts\python.exe` on Windows or `.venv/bin/python` on Linux.
-
-This helps VS Code resolve imports from Textual, pyserial, and the local `src` package.
-
-## How To Run
-
-### CLI mode
-
-From anywhere after a `pipx` install:
-
-```powershell
-serialhub
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e .[dev]
 ```
 
-Alternative from a checkout:
+If you use VS Code, point it at the virtual-environment interpreter so imports resolve correctly.
+
+## Running From Source
+
+Terminal mode:
 
 ```powershell
 python -m serialhub
 ```
 
-### Web mode
-
-Serve the Textual app in your browser:
-
-```powershell
-serialhub --web
-```
-
-Alternative:
+Browser mode:
 
 ```powershell
 python -m serialhub --web
 ```
 
-Browser mode serves the Textual app itself on `http://localhost:8000` by default and opens your browser automatically.
-
-To bind a different interface or port:
+To bind a different browser host or port:
 
 ```powershell
-serialhub --web --host 0.0.0.0 --port 8000
+python -m serialhub --web --host 0.0.0.0 --port 8000
 ```
 
-By default SerialHub stores local app data in a per-user application data folder:
+By default SerialHub stores local app data in a per-user application-data folder:
 
 - Windows: `%LOCALAPPDATA%\SerialHub`
 - Linux: `$XDG_DATA_HOME/SerialHub` or `~/.local/share/SerialHub`
 
-You can override the storage location by setting `SERIALHUB_DATA_DIR` before launch.
+Override the storage location with `SERIALHUB_DATA_DIR` if needed.
 
-## Updating SerialHub
-
-If SerialHub was installed with `pipx` from a local checkout, update it from the project root with:
-
-```powershell
-python -m pipx install --force .
-```
-
-You can also rerun the platform install script:
-
-```powershell
-.\scripts\install_windows.ps1
-```
-
-```bash
-bash ./scripts/install_linux.sh
-```
-
-If you are working in an editable development checkout, the built-in updater remains available:
-
-```powershell
-serialhub update
-```
-
-## First-Time Setup In The App
-
-When the app opens:
+## First-Time App Setup
 
 1. Enter a username on the login screen.
 2. Optional: enable `Remember Me` to sign back into that local profile automatically next time.
-3. Use `New User` once to generate the local user folder and starter JSON files if the profile does not exist yet.
-4. Click `Refresh` to load serial ports.
-5. Select a port from the `Serial` tab in the `Connection` panel.
-6. Set your connection parameters in the `Connection` panel.
-7. Press `Connect`.
-8. Optional: paste an existing log folder path or a full `.txt` log path into `Log filepath`, then enable auto-logging if needed.
-9. Optional: pick a command config in the `Functions` panel to load user-defined message buttons.
-10. Start sending or receiving data.
-11. Close a workspace tab when you want to remove its saved session history.
+3. Use `New User` once to create the local profile and starter command files.
+4. Refresh ports, choose a `Serial` or `TCP/IP` connection, and connect.
+5. Optional: set a log folder or explicit `.txt` log path.
+6. Optional: choose a command config in the `Functions` panel.
+7. Start sending and receiving data in the workspace tab for that device.
 
-Browser mode exposes the same Textual workflow through the browser by serving `SerialHubApp` itself, rather than maintaining a separate HTML frontend.
+Browser mode serves the same Textual app locally; it is not a separate frontend.
 
-## Using The Main Workflow
+## Main Workflow
 
-1. Pick a serial device from the `Serial` connection tab and connect it.
-2. Work in the device's raw-stream workspace tab.
-3. Use the TX input field to send text payloads.
-4. Enable `HEX TX` when sending raw hex payloads.
-5. Toggle `Timestamps` when needed.
-6. Paste a log folder or full `.txt` file path into `Log filepath` when you want logs written outside the app data folder.
-7. Use `Start Logging` / `Stop Logging` for the active workspace.
-8. Pick a command config from the `Functions` panel and press a generated button to send its payload to the active device.
-9. Open `CONFIG EDITOR` when you want to browse a config file, build command buttons from labeled inputs, or preview the generated JSON.
+1. Select a serial device or TCP target and connect.
+2. Work in that device's raw-stream workspace tab.
+3. Use the TX input to send payloads, or enable `HEX TX` for hex data.
+4. Toggle timestamps and logging as needed.
+5. Use the `Functions` panel to send configured commands.
+6. Open `CONFIG EDITOR` to edit or preview command-config JSON files.
 
-### CLI Keyboard Shortcuts
+Keyboard shortcuts:
 
-- `M`: focus the TX message input field
-- `D`: connect/disconnect the currently selected device
-- `L`: start/stop logging for the active device session
-- `Ctrl+Q`: log out of the current user profile
-- `Ctrl+T`: toggle between dark and light themes
+- `M`: focus the TX message input
+- `D`: connect or disconnect the selected device
+- `L`: start or stop logging for the active session
+- `Ctrl+Q`: log out
+- `Ctrl+T`: toggle theme
 
-## Generated Output Structure
+## User Data And Logging
 
-SerialHub now keeps runtime user files under the local application-data directory. For a user `alice`, the generated structure looks like:
+Runtime user data lives under the SerialHub data directory. For a user named `alice`, the layout looks like this:
 
 ```text
 <SerialHub data dir>/
@@ -302,58 +144,37 @@ SerialHub now keeps runtime user files under the local application-data director
       message_history.txt
 ```
 
-Notes:
+Important behaviors:
 
 - If `Log filepath` points to an existing folder, SerialHub generates the filename automatically.
 - If `Log filepath` points to a `.txt` file, SerialHub writes to that exact file.
-
-## User Data And Logging
-
-SerialHub stores local metadata and user content in its data directory:
-
-- `users/<username>/<username>.json`
-  - the active user's profile metadata (`THEME`, `LOG_FOLDER`, `COMMAND_CONFIGS`)
-- `users/<username>/configs/*.json`
-  - command config files referenced by `COMMAND_CONFIGS`
-- `users/<username>/logs/*.txt`
-  - fallback per-device communication logs when no external log folder is supplied
-- `users/<username>/message_history.txt`
-  - sent-message history for that user
-
-The `LOG_FOLDER` value is mirrored in the `Log filepath` field and may be either a directory path or an explicit `.txt` path.
+- `LOG_FOLDER` in the user profile is mirrored into the app's `Log filepath` input.
 
 Example override:
 
 ```powershell
 $env:SERIALHUB_DATA_DIR = "D:\SerialHubData"
-serialhub
+python -m serialhub
 ```
 
 ## Development Commands
 
-Run tests:
-
 ```powershell
 python -m pytest
-```
-
-Run lint checks:
-
-```powershell
 python -m ruff check src tests
-```
-
-Quick syntax/compile check:
-
-```powershell
 python -m compileall src tests
 ```
+
+## Repository Layout
+
+- `src/serialhub/`: application source
+- `tests/`: automated tests
+- `tools/`: optional development and manual-testing helpers
+- `scripts/dev_setup.ps1`: Windows development bootstrap helper
 
 ## Repository Standards
 
 - License: `GPLv3` ([LICENSE](LICENSE))
 - Contribution guide: [CONTRIBUTING.md](CONTRIBUTING.md)
 - Changelog: [CHANGELOG.md](CHANGELOG.md)
-- CI: GitHub Actions workflow at `.github/workflows/ci.yml`
-
----
+- CI and release automation: [`.github/workflows/ci.yml`](.github/workflows/ci.yml)

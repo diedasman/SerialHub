@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import sys
 
 from serialhub.app import SerialHubApp
-from serialhub.updater import update_from_git_checkout
 from serialhub.web import DEFAULT_WEB_HOST, DEFAULT_WEB_PORT, run_web_app
 from serialhub.windows_terminal import maybe_relaunch_in_sized_powershell
 
@@ -21,13 +21,6 @@ def parse_port(value: str) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="serialhub", description="SerialHub terminal and protocol tool")
-    parser.add_argument(
-        "command",
-        nargs="?",
-        choices=("run", "update"),
-        default="run",
-        help="Command to run (default: run)",
-    )
     parser.add_argument(
         "--web",
         action="store_true",
@@ -48,13 +41,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    raw_args = list(sys.argv[1:] if argv is None else argv)
+    if raw_args[:1] == ["run"]:
+        raw_args = raw_args[1:]
+
     parser = build_parser()
-    args = parser.parse_args(argv)
+    args = parser.parse_args(raw_args)
 
-    if args.command == "update":
-        return update_from_git_checkout()
-
-    if not args.web and maybe_relaunch_in_sized_powershell(argv):
+    if not args.web and maybe_relaunch_in_sized_powershell(raw_args):
         return 0
 
     if args.web:

@@ -1,16 +1,21 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import threading
 import webbrowser
+
+from serialhub.windows_terminal import SKIP_SIZED_TERMINAL_ENV
 
 DEFAULT_WEB_HOST = "localhost"
 DEFAULT_WEB_PORT = 8000
 
 
 def build_web_command() -> str:
-    return subprocess.list2cmdline([sys.executable, "-m", "serialhub", "run"])
+    if getattr(sys, "frozen", False):
+        return subprocess.list2cmdline([sys.executable])
+    return subprocess.list2cmdline([sys.executable, "-m", "serialhub"])
 
 
 def build_browser_url(host: str, port: int) -> str:
@@ -39,4 +44,12 @@ def run_web_app(
         threading.Timer(0.4, lambda: webbrowser.open(launch_url)).start()
         print(f"Opening {launch_url}")
 
-    Server(command=command, host=host, port=port, title="SerialHub").serve()
+    previous_skip_value = os.environ.get(SKIP_SIZED_TERMINAL_ENV)
+    os.environ[SKIP_SIZED_TERMINAL_ENV] = "1"
+    try:
+        Server(command=command, host=host, port=port, title="SerialHub").serve()
+    finally:
+        if previous_skip_value is None:
+            os.environ.pop(SKIP_SIZED_TERMINAL_ENV, None)
+        else:
+            os.environ[SKIP_SIZED_TERMINAL_ENV] = previous_skip_value

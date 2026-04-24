@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  PYTHON_VERSION: "3.12"
+  APP_NAME: "SerialHub"
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .[dev]
+
+      - name: Run Ruff
+        run: python -m ruff check src tests
+
+      - name: Run pytest
+        run: python -m pytest
+
+  build-windows-exe:
+    name: Build Windows executable
+    runs-on: windows-latest
+    needs: test
+    if: github.event_name != 'pull_request'
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install application and packaging dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pyinstaller
+
+      - name: Build executable
+        shell: pwsh
+        run: |
+          python -m PyInstaller `
+            --noconfirm `
+            --clean `
+            --onefile `
+            --console `
+            --name $env:APP_NAME `
+            --specpath build/pyinstaller `
+            --workpath build/pyinstaller `
+            --distpath dist `
+            --collect-all textual `
+            --collect-all textual_serve `
+            --collect-submodules serial `
+            --collect-data serialhub `
+            src/serialhub/__main__.py
+
+      - name: Package release bundle
+        shell: pwsh
+        run: |
+          $bundleDir = "dist\$env:APP_NAME-windows-amd64"
+          New-Item -ItemType Directory -Force -Path $bundleDir | Out-Null
+          Copy-Item "dist\$env:APP_NAME.exe" $bundleDir
+          Copy-Item README.md, LICENSE $bundleDir
+          Compress-Archive -Path "$bundleDir\*" -DestinationPath "dist\$env:APP_NAME-windows-amd64.zip" -Force
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: SerialHub-windows-amd64
+          if-no-files-found: error
+          path: |
+            dist/SerialHub.exe
+            dist/SerialHub-windows-amd64.zip
+
+      - name: Publish GitHub release assets
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/SerialHub-windows-amd64.zip
+          generate_release_notes: true

@@ -1,15 +1,14 @@
 from serialhub import cli
 
 
-def test_parser_accepts_commands() -> None:
+def test_parser_accepts_web_options() -> None:
     parser = cli.build_parser()
-    args_run = parser.parse_args(["run"])
-    args_update = parser.parse_args(["update"])
+    args_run = parser.parse_args([])
     args_web = parser.parse_args(["--web", "--host", "0.0.0.0", "--port", "9001"])
 
-    assert args_run.command == "run"
-    assert args_update.command == "update"
-    assert args_web.command == "run"
+    assert args_run.web is False
+    assert args_run.host == "localhost"
+    assert args_run.port == 8000
     assert args_web.web is True
     assert args_web.host == "0.0.0.0"
     assert args_web.port == 9001
@@ -26,6 +25,20 @@ def test_main_dispatches_to_terminal_mode(monkeypatch) -> None:
     monkeypatch.setattr(cli, "run_web_app", lambda **_: called.append("web"))
 
     assert cli.main([]) == 0
+    assert called == ["run"]
+
+
+def test_main_accepts_legacy_run_command(monkeypatch) -> None:
+    called: list[str] = []
+
+    class DummyApp:
+        def run(self) -> None:
+            called.append("run")
+
+    monkeypatch.setattr(cli, "SerialHubApp", DummyApp)
+    monkeypatch.setattr(cli, "run_web_app", lambda **_: called.append("web"))
+
+    assert cli.main(["run"]) == 0
     assert called == ["run"]
 
 
