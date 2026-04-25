@@ -814,6 +814,45 @@ def test_workspace_status_container_sits_at_bottom_of_center_panel(monkeypatch, 
     asyncio.run(scenario())
 
 
+def test_workspace_layout_compacts_for_packaged_window_size() -> None:
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False)
+        app.device_manager = FakeDeviceManager()
+
+        async with app.run_test(size=(140, 40)) as pilot:
+            await pilot.pause()
+
+            toolbar = app.query_one("#workspace-toolbar")
+            tx_row = app.query_one("#tx-row")
+            function_row = app.query_one("#function-buttons-row")
+            data_widget = app.query_one("#workspace-data-widget")
+            toolbar_buttons = app.query_one("#workspace-toolbar-buttons")
+            terminate_select = app.query_one("#tx-terminate-option", Select)
+
+            wide_terminate_width = terminate_select.region.width
+
+            assert toolbar.has_class("-compact") is False
+            assert tx_row.has_class("-compact") is False
+            assert function_row.has_class("-compact") is False
+            assert abs(toolbar_buttons.region.y - data_widget.region.y) <= 1
+
+            await pilot.resize_terminal(120, 36)
+
+            assert toolbar.has_class("-compact") is True
+            assert tx_row.has_class("-compact") is True
+            assert function_row.has_class("-compact") is True
+            assert toolbar_buttons.region.y > data_widget.region.y
+            assert terminate_select.region.width < wide_terminate_width
+
+            await pilot.resize_terminal(120, 28)
+
+            assert toolbar.has_class("-compact") is False
+            assert tx_row.has_class("-compact") is False
+            assert function_row.has_class("-compact") is False
+
+    asyncio.run(scenario())
+
+
 def test_connection_switch_reflects_active_workspace_connection_state() -> None:
     async def scenario() -> None:
         app = SerialHubApp(require_login=False)

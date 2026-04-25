@@ -5,11 +5,15 @@ import subprocess
 import sys
 from collections.abc import Mapping, Sequence
 
-DEFAULT_TERMINAL_COLUMNS = 132
-DEFAULT_TERMINAL_LINES = 42
+DEFAULT_TERMINAL_COLUMNS = 120
+DEFAULT_TERMINAL_LINES = 36
+MIN_TERMINAL_COLUMNS = 80
+MIN_TERMINAL_LINES = 24
 SIZED_TERMINAL_ENV = "SERIALHUB_SIZED_TERMINAL"
 SKIP_SIZED_TERMINAL_ENV = "SERIALHUB_SKIP_SIZED_TERMINAL"
 PYINSTALLER_RESET_ENV = "PYINSTALLER_RESET_ENVIRONMENT"
+TERMINAL_COLUMNS_ENV = "SERIALHUB_TERMINAL_COLUMNS"
+TERMINAL_LINES_ENV = "SERIALHUB_TERMINAL_LINES"
 
 
 def powershell_quote(value: str) -> str:
@@ -35,6 +39,45 @@ def build_sized_powershell_command(
     ]
 
 
+def _resolve_terminal_dimension(
+    env_name: str,
+    *,
+    default: int,
+    minimum: int,
+    environ: Mapping[str, str] | None = None,
+) -> int:
+    env = os.environ if environ is None else environ
+    raw_value = env.get(env_name, "").strip()
+    if not raw_value:
+        return default
+
+    try:
+        parsed = int(raw_value)
+    except ValueError:
+        return default
+
+    return max(parsed, minimum)
+
+
+def resolve_sized_terminal_geometry(
+    environ: Mapping[str, str] | None = None,
+) -> tuple[int, int]:
+    return (
+        _resolve_terminal_dimension(
+            TERMINAL_COLUMNS_ENV,
+            default=DEFAULT_TERMINAL_COLUMNS,
+            minimum=MIN_TERMINAL_COLUMNS,
+            environ=environ,
+        ),
+        _resolve_terminal_dimension(
+            TERMINAL_LINES_ENV,
+            default=DEFAULT_TERMINAL_LINES,
+            minimum=MIN_TERMINAL_LINES,
+            environ=environ,
+        ),
+    )
+
+
 def should_relaunch_in_sized_powershell(
     *,
     frozen: bool | None = None,
@@ -58,10 +101,14 @@ def maybe_relaunch_in_sized_powershell(argv: Sequence[str] | None = None) -> boo
 
     args = list(sys.argv[1:] if argv is None else argv)
     env = os.environ.copy()
+    columns, lines = resolve_sized_terminal_geometry(env)
     env[SIZED_TERMINAL_ENV] = "1"
     # PyInstaller one-file apps need a reset when they relaunch themselves,
     # otherwise the new process may inherit a temporary extraction directory
     # that is cleaned up when the current process exits.
     env[PYINSTALLER_RESET_ENV] = "1"
-    subprocess.Popen(build_sized_powershell_command(sys.executable, args), env=env)  # noqa: S603
+    subprocess.Popen(
+        build_sized_powershell_command(sys.executable, args, columns=columns, lines=lines),
+        env=env,
+    )  # noqa: S603
     return True

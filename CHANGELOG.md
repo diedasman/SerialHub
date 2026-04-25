@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [Unreleased] - 2026-04-25
+
+### Changed
+
+- Added a compact workspace layout mode that activates around the packaged `120x36` window target so the toolbar and center-panel controls fit without relying on terminal zoom.
+- Lowered the packaged Windows PowerShell launch size default to `120x36` and added `SERIALHUB_TERMINAL_COLUMNS` / `SERIALHUB_TERMINAL_LINES` overrides for safer post-build tuning.
+
+### Fixed
+
+- Reduced the packaged-app startup sizing pressure that previously pushed SerialHub users to zoom out before the full workspace controls were visible.
+
+---
+
 ## [Unreleased] - 2026-04-24
 
 ### Added
