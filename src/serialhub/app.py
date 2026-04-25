@@ -1329,7 +1329,10 @@ class SerialHubApp(App[None]):
         self.call_after_refresh(self._apply_responsive_layout)
 
     def _apply_responsive_layout(self) -> None:
-        compact = self.size.width <= _COMPACT_LAYOUT_MAX_WIDTH and self.size.height >= _COMPACT_LAYOUT_MIN_HEIGHT
+        compact = (
+            self.size.width <= _COMPACT_LAYOUT_MAX_WIDTH
+            and self.size.height >= _COMPACT_LAYOUT_MIN_HEIGHT
+        )
         self._set_layout_class("#workspace-toolbar", "-compact", compact)
         self._set_layout_class("#tx-row", "-compact", compact)
         self._set_layout_class("#function-buttons-row", "-compact", compact)

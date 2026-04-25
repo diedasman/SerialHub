@@ -1,6 +1,5 @@
 from serialhub.windows_terminal import (
     DEFAULT_TERMINAL_COLUMNS,
-    DEFAULT_TERMINAL_LINES,
     PYINSTALLER_RESET_ENV,
     SIZED_TERMINAL_ENV,
     SKIP_SIZED_TERMINAL_ENV,
@@ -79,7 +78,13 @@ def test_maybe_relaunch_sets_pyinstaller_reset_environment(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         "serialhub.windows_terminal.build_sized_powershell_command",
-        lambda executable, args, *, columns, lines: ["powershell.exe", executable, str(columns), str(lines), *args],
+        lambda executable, args, *, columns, lines: [
+            "powershell.exe",
+            executable,
+            str(columns),
+            str(lines),
+            *args,
+        ],
     )
     monkeypatch.setattr(
         "serialhub.windows_terminal.sys.executable",
