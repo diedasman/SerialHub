@@ -7,7 +7,6 @@ from datetime import datetime
 from importlib.resources import files
 from pathlib import Path
 
-from textual import events  # type: ignore
 from textual.app import App, ComposeResult  # type: ignore
 from textual.binding import Binding  # type: ignore
 from textual.containers import Horizontal, Vertical, VerticalScroll  # type: ignore
@@ -94,8 +93,6 @@ _CONFIG_COMMAND_SEPARATOR = " / "
 _NEW_CONFIG_DOCUMENT_KEY = "__new__"
 _NO_STARTUP_COMMAND_CONFIG = "__none__"
 _WORKSPACE_IDLE_TICK_SECONDS = 0.75
-_COMPACT_LAYOUT_MAX_WIDTH = 120
-_COMPACT_LAYOUT_MIN_HEIGHT = 32
 
 
 def load_ascii_logo() -> str:
@@ -1315,7 +1312,6 @@ class SerialHubApp(App[None]):
         self._sync_active_device_from_workspace()
         self._refresh_logging_button()
         self._refresh_user_dependent_ui()
-        self.call_after_refresh(self._apply_responsive_layout)
         self.set_interval(_WORKSPACE_IDLE_TICK_SECONDS, self._advance_workspace_datastreams)
 
         if self.current_user:
@@ -1324,24 +1320,6 @@ class SerialHubApp(App[None]):
 
         if self.require_login:
             self._show_startup_login()
-
-    def on_resize(self, _event: events.Resize) -> None:
-        self.call_after_refresh(self._apply_responsive_layout)
-
-    def _apply_responsive_layout(self) -> None:
-        compact = (
-            self.size.width <= _COMPACT_LAYOUT_MAX_WIDTH
-            and self.size.height >= _COMPACT_LAYOUT_MIN_HEIGHT
-        )
-        self._set_layout_class("#workspace-toolbar", "-compact", compact)
-        self._set_layout_class("#tx-row", "-compact", compact)
-        self._set_layout_class("#function-buttons-row", "-compact", compact)
-
-    def _set_layout_class(self, selector: str, class_name: str, enabled: bool) -> None:
-        try:
-            self._query_ui(selector, Widget).set_class(enabled, class_name)
-        except NoMatches:
-            return
 
     def action_refresh_devices(self) -> None:
         self._refresh_devices_ui()

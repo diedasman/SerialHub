@@ -5,7 +5,6 @@ import sys
 
 from serialhub.app import SerialHubApp
 from serialhub.web import DEFAULT_WEB_HOST, DEFAULT_WEB_PORT, run_web_app
-from serialhub.windows_terminal import maybe_relaunch_in_sized_powershell
 
 
 def parse_port(value: str) -> int:
@@ -47,9 +46,6 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = build_parser()
     args = parser.parse_args(raw_args)
-
-    if not args.web and maybe_relaunch_in_sized_powershell(raw_args):
-        return 0
 
     if args.web:
         run_web_app(host=args.host, port=args.port)

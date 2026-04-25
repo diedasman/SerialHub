@@ -8,12 +8,12 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- Added a compact workspace layout mode that activates around the packaged `120x36` window target so the toolbar and center-panel controls fit without relying on terminal zoom.
-- Lowered the packaged Windows PowerShell launch size default to `120x36` and added `SERIALHUB_TERMINAL_COLUMNS` / `SERIALHUB_TERMINAL_LINES` overrides for safer post-build tuning.
+- Removed the packaged Windows PowerShell relaunch path so the executable starts directly in the original console session.
+- Added a conditional Windows build icon hook that uses `src/serialhub/assets/app.ico` when the file is present.
 
 ### Fixed
 
-- Reduced the packaged-app startup sizing pressure that previously pushed SerialHub users to zoom out before the full workspace controls were visible.
+- Removed the extra packaged-app startup hop that could delay the full UI becoming visible after the console window opened.
 
 ---
 
@@ -23,7 +23,6 @@ All notable changes to this project will be documented in this file.
 
 - Added the active username to the `User Settings` screen in a bordered summary row.
 - Added a `Copy Workspace` action that copies the active workspace stream to Textual's clipboard.
-- Added a Windows packaged-app PowerShell launch scaffold for opening SerialHub in a console sized for the TUI.
 
 ### Changed
 

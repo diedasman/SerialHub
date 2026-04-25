@@ -73,22 +73,11 @@ TabPane {
     # margin-bottom: 1;
 }
 
-#workspace-toolbar.-compact {
-    layout: vertical;
-}
-
 .workspace-toolbar-widget {
     height: 5;
     border: round $secondary;
     padding: 0 1;
     margin-right: 1;
-}
-
-#workspace-toolbar.-compact .workspace-toolbar-widget {
-    width: 1fr;
-    height: auto;
-    margin-right: 0;
-    margin-bottom: 1;
 }
 
 #workspace-connection-widget {
@@ -227,11 +216,6 @@ TabPane {
     # padding: 0 1;
 }
 
-#workspace-toolbar.-compact #workspace-toolbar-buttons {
-    width: 1fr;
-    margin-top: 0;
-}
-
 #clear-console-btn,
 #close-active-workspace {
     min-width: 7;
@@ -245,14 +229,6 @@ TabPane {
 #tx-row {
     layout: horizontal;
     height: auto;
-}
-
-#tx-row.-compact #tx-terminate-option {
-    width: 12;
-}
-
-#tx-row.-compact #send-btn {
-    width: 12;
 }
 
 .stack-row {
@@ -293,17 +269,6 @@ TabPane {
     margin-top: 1;
     margin-bottom: 1;
     # width: 2fr;
-}
-
-#function-buttons-row.-compact #log-filepath {
-    width: 2fr;
-}
-
-#function-buttons-row.-compact #toggle-logging,
-#function-buttons-row.-compact #copy-workspace-btn {
-    width: 1fr;
-    min-width: 0;
-    margin-left: 0;
 }
 
 #timestamp-checkbox {

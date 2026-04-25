@@ -75,22 +75,28 @@ jobs:
           $projectRoot = (Get-Location).Path
           $cssPath = Join-Path $projectRoot "src/serialhub/serialhub.tcss"
           $assetsPath = Join-Path $projectRoot "src/serialhub/assets"
-          python -m PyInstaller `
-            --noconfirm `
-            --clean `
-            --onefile `
-            --console `
-            --name $env:APP_NAME `
-            --specpath build/pyinstaller `
-            --workpath build/pyinstaller `
-            --distpath dist `
-            --add-data "${cssPath};serialhub" `
-            --add-data "${assetsPath};serialhub/assets" `
-            --collect-all textual `
-            --collect-all textual_serve `
-            --collect-submodules serial `
-            --collect-data serialhub `
-            src/serialhub/__main__.py
+          $iconPath = Join-Path $assetsPath "app.ico"
+          $pyInstallerArgs = @(
+            "--noconfirm",
+            "--clean",
+            "--onefile",
+            "--console",
+            "--name", $env:APP_NAME,
+            "--specpath", "build/pyinstaller",
+            "--workpath", "build/pyinstaller",
+            "--distpath", "dist",
+            "--add-data", "${cssPath};serialhub",
+            "--add-data", "${assetsPath};serialhub/assets",
+            "--collect-all", "textual",
+            "--collect-all", "textual_serve",
+            "--collect-submodules", "serial",
+            "--collect-data", "serialhub"
+          )
+          if (Test-Path $iconPath) {
+            $pyInstallerArgs += @("--icon", $iconPath)
+          }
+          $pyInstallerArgs += "src/serialhub/__main__.py"
+          python -m PyInstaller @pyInstallerArgs
 
       - name: Package release bundle
         shell: pwsh
