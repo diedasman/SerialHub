@@ -6,9 +6,9 @@ DEFAULT_THEME_MODE = "dark"
 
 APP_THEME_DARK = Theme(
     name="app-dark",
-    primary="#225A8F",
+    primary="#15A24A",
     secondary="#3F4A4A",
-    accent="#225A8F",
+    accent="#15A24A",
     foreground="#E6EDF3",
     background="#0F1419",
     surface="#151B22",
@@ -26,9 +26,9 @@ APP_THEME_DARK = Theme(
 
 APP_THEME_LIGHT = Theme(
     name="app-light",
-    primary="#155EA2",
+    primary="#15A24A",
     secondary="#4D5C5C",
-    accent="#155EA2",
+    accent="#15A24A",
     foreground="#00080E",
     background="#EFECE6",
     surface="#FFFFFF",
