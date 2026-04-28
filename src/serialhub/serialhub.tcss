@@ -50,6 +50,7 @@ Screen {
     dock: bottom;
     height: auto;
     margin-top: 1;
+    width: auto;
 }
 
 #workspace-tabs {
