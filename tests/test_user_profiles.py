@@ -50,6 +50,8 @@ def test_create_user_profile_creates_expected_local_files(monkeypatch, tmp_path)
 
     assert profile.username == "alice"
     assert profile.startup_command_config == ""
+    assert profile.show_activity_widget is True
+    assert profile.show_bottom_status_bar is True
     assert profile.command_configs == ["alice_cmds", "blank"]
     assert get_user_profile_path("alice").exists()
     assert get_user_command_configs_dir("alice").exists()

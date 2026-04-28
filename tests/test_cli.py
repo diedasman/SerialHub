@@ -1,4 +1,6 @@
-from serialhub import cli
+import pytest
+
+from serialhub import __version__, cli
 
 
 def test_parser_accepts_web_options() -> None:
@@ -12,6 +14,16 @@ def test_parser_accepts_web_options() -> None:
     assert args_web.web is True
     assert args_web.host == "0.0.0.0"
     assert args_web.port == 9001
+
+
+def test_parser_reports_version(capsys: pytest.CaptureFixture[str]) -> None:
+    parser = cli.build_parser()
+
+    with pytest.raises(SystemExit) as exc_info:
+        parser.parse_args(["--version"])
+
+    assert exc_info.value.code == 0
+    assert capsys.readouterr().out.strip() == f"serialhub {__version__}"
 
 
 def test_main_dispatches_to_terminal_mode(monkeypatch) -> None:

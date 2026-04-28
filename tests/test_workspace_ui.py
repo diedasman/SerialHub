@@ -3,7 +3,7 @@ import json
 from types import SimpleNamespace
 
 from textual.css.query import NoMatches
-from textual.widgets import Button, Input, Select, Sparkline, Static, TabbedContent
+from textual.widgets import Button, Input, Select, Sparkline, Static, Switch, TabbedContent
 
 from serialhub.app import (
     ConfigEditorScreen,
@@ -18,6 +18,7 @@ from serialhub.core.models import DeviceInfo, SerialEvent
 from serialhub.user_profiles import (
     create_user_profile,
     get_user_command_config_path,
+    get_user_default_logs_dir,
     get_user_tcp_ip_history_path,
     get_user_tcp_port_history_path,
     load_user_profile,
@@ -194,8 +195,12 @@ def test_user_settings_screen_shows_current_user_and_horizontal_fields(monkeypat
             app.query_one("#user-settings-btn", Button).press()
             screen = await wait_for_screen(app, UserSettingsScreen, pilot)
             user_summary = await wait_for_query(screen, "#settings-current-user", Static, pilot)
-            label = await wait_for_query(screen, ".settings-input-label", Static, pilot)
             startup = await wait_for_query(screen, "#settings-startup-command", Select, pilot)
+            label = next(
+                widget
+                for widget in screen.query(".settings-input-label")
+                if isinstance(widget, Static) and static_text(widget) == "STARTUP COMMAND FILE"
+            )
 
             assert static_text(user_summary) == "user: alice"
             assert abs(label.region.y - startup.region.y) <= 1
@@ -722,6 +727,73 @@ def test_user_settings_save_persists_startup_command_theme_and_log_folder(monkey
             assert reopened_app.query_one("#command-config-select", Select).value == "alice_cmds"
             assert reopened_app.theme_mode == "light"
             assert reopened_app.query_one("#log-filepath", Input).value == str(custom_logs)
+
+    asyncio.run(scenario())
+
+
+def test_user_settings_save_persists_ui_toggle_preferences(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
+    profile = create_user_profile("alice")
+
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False, startup_user=profile)
+        app.device_manager = FakeDeviceManager()
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            app.query_one("#user-settings-btn", Button).press()
+            await pilot.pause()
+            await pilot.pause()
+            assert isinstance(app.screen, UserSettingsScreen)
+
+            activity_switch = app.screen.query_one("#settings-activity-widget", Switch)
+            status_bar_switch = app.screen.query_one("#settings-bottom-status-bar", Switch)
+            assert activity_switch.value is True
+            assert status_bar_switch.value is True
+
+            activity_switch.value = False
+            status_bar_switch.value = False
+            await pilot.pause()
+
+            app.screen.query_one("#settings-save", Button).press()
+            await pilot.pause()
+            await pilot.pause()
+
+            assert app.query_one("#workspace-data-widget").display is False
+            assert app.query_one("#workspace-status").display is False
+
+            reloaded_profile = load_user_profile("alice")
+            assert reloaded_profile is not None
+            assert reloaded_profile.show_activity_widget is False
+            assert reloaded_profile.show_bottom_status_bar is False
+
+        reloaded_profile = load_user_profile("alice")
+        assert reloaded_profile is not None
+
+        reopened_app = SerialHubApp(require_login=False, startup_user=reloaded_profile)
+        reopened_app.device_manager = FakeDeviceManager()
+        async with reopened_app.run_test() as reopened_pilot:
+            await reopened_pilot.pause()
+            assert reopened_app.query_one("#workspace-data-widget").display is False
+            assert reopened_app.query_one("#workspace-status").display is False
+
+    asyncio.run(scenario())
+
+
+def test_log_filepath_placeholder_uses_current_user_default_logs_dir(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
+    profile = create_user_profile("alice")
+
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False, startup_user=profile)
+        app.device_manager = FakeDeviceManager()
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            log_input = app.query_one("#log-filepath", Input)
+            assert log_input.placeholder == str(get_user_default_logs_dir("alice"))
+            assert log_input.value == ""
 
     asyncio.run(scenario())
 

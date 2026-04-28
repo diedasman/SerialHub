@@ -8,7 +8,7 @@ Screen {
 }
 
 .panel {
-    border: heavy $primary;
+    border: round $primary;
     border-title-align: center;
     background: $background;
     padding: 0 1;
@@ -16,7 +16,7 @@ Screen {
 }
 
 #left-panel {
-    width: 18%;
+    width: 20%;
     # min-width: 28;
     layout: vertical;
 }
@@ -50,6 +50,7 @@ Screen {
     dock: bottom;
     height: auto;
     margin-top: 1;
+    width: auto;
 }
 
 #workspace-tabs {
@@ -210,16 +211,16 @@ TabPane {
 #workspace-toolbar-buttons {
     layout: horizontal;
     height: auto;
-    width: 28;
-    # content-align: left top;
+    width: auto;
+    # content-align: right top;
     margin-top: 1;
     # padding: 0 1;
 }
 
 #clear-console-btn,
 #close-active-workspace {
-    min-width: 7;
-    width: 1fr;
+    min-width: 10;
+    width: auto;
     height: 3;
     padding: 0;
     content-align: center top;
@@ -237,6 +238,16 @@ TabPane {
 
 #left-panel-actions Button {
     width: 1fr;
+}
+
+#connect-btn {
+    width: auto;
+    min-width: 4;
+}
+
+#disconnect-btn {
+    width: auto;
+    min-width: 4;
 }
 
 #workspace-status {
@@ -311,6 +322,7 @@ TabPane {
 .workspace-placeholder-text {
     color: $accent;
     margin-bottom: 0;
+    width: 1fr;
 }
 
 #tx-input {
@@ -373,7 +385,8 @@ TabPane {
 }
 
 .command-button {
-    width: 40%;
+    width: auto;
+    min-width: 8;
     margin-bottom: 1;
     margin-right: 1;
     # margin-left: 1;
@@ -566,13 +579,14 @@ TabPane {
     height: auto;
     margin-bottom: 1;
     margin-top: 1;
-    width: 1fr;
+    width: auto;
     content-align: center middle;
 }
 
 #config-editor-btn,
 #user-settings-btn {
-    width: 1fr;
+    width: auto;
+    min-width: 4;
     height: auto;
     margin-left: 0;
 }
@@ -586,6 +600,8 @@ TabPane {
 }
 
 #footer-row {
+    layout: horizontal;
+    align: left middle;
     height: 1;
     background: $background;
 }
@@ -594,6 +610,14 @@ TabPane {
     width: 1fr;
     background: $background;
     color: $foreground;
+}
+
+#app-version {
+    width: auto;
+    min-width: 0;
+    padding: 0 1;
+    background: $background;
+    color: $accent;
 }
 
 #login-footer {

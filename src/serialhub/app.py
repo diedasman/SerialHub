@@ -25,10 +25,12 @@ from textual.widgets import (  # type: ignore
     Select,
     Sparkline,
     Static,
+    Switch,
     TabbedContent,
     TabPane,
 )
 
+from serialhub import __version__
 from serialhub.config import get_data_dir, get_logs_dir
 from serialhub.core.device_manager import DeviceManager
 from serialhub.core.models import (
@@ -218,7 +220,7 @@ class UserLoginScreen(ModalScreen[None]):
         width: 48;
         max-width: 72;
         background: $surface;
-        border: heavy $primary;
+        border: round $primary;
         border-title-align: center;
         padding: 1 2;
         height: auto;
@@ -309,7 +311,7 @@ class UserSettingsScreen(ModalScreen[None]):
         width: 56;
         max-width: 84;
         background: $surface;
-        border: heavy $primary;
+        border: round $primary;
         border-title-align: center;
         padding: 1 2;
         height: auto;
@@ -344,6 +346,18 @@ class UserSettingsScreen(ModalScreen[None]):
         color: $secondary;
     }
 
+    .settings-toggle-label {
+        width: auto;
+        height: 3;
+        content-align: left middle;
+        color: $secondary;
+        margin-right: 1;
+    }
+
+    Switch {
+        margin-right: 3;
+    }
+
     #settings-startup-command,
     #settings-theme,
     #settings-log-folder {
@@ -373,6 +387,8 @@ class UserSettingsScreen(ModalScreen[None]):
         startup_command_config: str,
         theme_mode: str,
         log_folder: str,
+        show_activity_widget: bool,
+        show_bottom_status_bar: bool,
         username: str,
     ) -> None:
         super().__init__()
@@ -380,6 +396,8 @@ class UserSettingsScreen(ModalScreen[None]):
         self._startup_command_config = startup_command_config
         self._theme_mode = normalize_theme_mode(theme_mode)
         self._log_folder = log_folder
+        self._show_activity_widget = show_activity_widget
+        self._show_bottom_status_bar = show_bottom_status_bar
         self._username = username
 
     def compose(self) -> ComposeResult:
@@ -402,13 +420,12 @@ class UserSettingsScreen(ModalScreen[None]):
             with Horizontal(id="settings-user-row"):
                 yield Static(f"user: {self._username}", id="settings-current-user")
             with Horizontal(classes="settings-field-row"):
-                yield Static("STARTUP COMMAND FILE", classes="settings-input-label")
-                yield Select(
-                    startup_options,
-                    value=startup_value,
-                    allow_blank=False,
-                    id="settings-startup-command",
-                )
+                yield Static("UI SETTINGS", classes="settings-input-label")
+                yield Static("Activity", classes="settings-toggle-label")
+                yield Switch(value=self._show_activity_widget, id="settings-activity-widget")
+                yield Static("Status Bar", classes="settings-toggle-label")
+                yield Switch(value=self._show_bottom_status_bar, id="settings-bottom-status-bar")
+
             with Horizontal(classes="settings-field-row"):
                 yield Static("DEFAULT THEME", classes="settings-input-label")
                 yield Select(
@@ -417,6 +434,16 @@ class UserSettingsScreen(ModalScreen[None]):
                     allow_blank=False,
                     id="settings-theme",
                 )
+            
+            with Horizontal(classes="settings-field-row"):
+                yield Static("STARTUP COMMAND FILE", classes="settings-input-label")
+                yield Select(
+                    startup_options,
+                    value=startup_value,
+                    allow_blank=False,
+                    id="settings-startup-command",
+                )
+            
             with Horizontal(classes="settings-field-row"):
                 yield Static("DEFAULT LOG FOLDER", classes="settings-input-label")
                 yield Input(
@@ -459,11 +486,15 @@ class UserSettingsScreen(ModalScreen[None]):
         startup_command_config = "" if startup_value == _NO_STARTUP_COMMAND_CONFIG else startup_value
         theme_mode = normalize_theme_mode(self.query_one("#settings-theme", Select).value)
         log_folder = self.query_one("#settings-log-folder", Input).value
+        show_activity_widget = self.query_one("#settings-activity-widget", Switch).value
+        show_bottom_status_bar = self.query_one("#settings-bottom-status-bar", Switch).value
 
         if self.app.save_user_settings(
             startup_command_config=startup_command_config,
             theme_mode=theme_mode,
             log_folder=log_folder,
+            show_activity_widget=show_activity_widget,
+            show_bottom_status_bar=show_bottom_status_bar,
         ):
             self.dismiss(None)
 
@@ -1040,6 +1071,8 @@ class ConfigEditorScreen(Screen[None]):
 class SerialHubApp(App[None]):
     CSS = load_app_css()
     ENABLE_COMMAND_PALETTE = False
+    TITLE = "SerialHub"
+    SUB_TITLE = f"v{__version__}"
     WORKSPACE_PLACEHOLDER_ID = "workspace-empty"
     BINDINGS = [
         Binding("r", "refresh_devices", "Refresh Devices"),
@@ -1104,6 +1137,14 @@ class SerialHubApp(App[None]):
     def _workspace_placeholder_text(self) -> str:
         return self._logo_content or "SerialHub"
 
+    def _log_path_placeholder(self) -> str:
+        if self.current_user:
+            return str(get_user_default_logs_dir(self.current_user.username))
+        return str(get_logs_dir())
+
+    def _app_version_text(self) -> str:
+        return f"v{__version__}"
+
     def _query_ui(self, selector: str, expect_type: type[Widget]) -> Widget:
         for screen in reversed(tuple(self.screen_stack)):
             try:
@@ -1166,7 +1207,7 @@ class SerialHubApp(App[None]):
                             value="8",
                             allow_blank=False,
                         )
-                        yield Checkbox("Auto-logging on connect", value=False, id="auto-log-checkbox")
+                        yield Checkbox("Start Logging", value=False, id="auto-log-checkbox")
                         yield Static("Select a port to connect.", id="device-meta", classes="hint")
 
                     with TabPane("TCP/IP", id="connection-tcp"):
@@ -1251,7 +1292,7 @@ class SerialHubApp(App[None]):
                     with TabPane("Workspace", id=self.WORKSPACE_PLACEHOLDER_ID):
                         yield Vertical(
                             Static(
-                                " " + self._workspace_placeholder_text(),
+                                self._workspace_placeholder_text(),
                                 id="workspace-placeholder",
                                 classes="workspace-content workspace-placeholder-text",
                             ),
@@ -1280,7 +1321,7 @@ class SerialHubApp(App[None]):
 
                 with Horizontal(id="function-buttons-row"):
                     yield Checkbox("Timestamps", value=True, id="timestamp-checkbox")
-                    yield Input(placeholder="Log folder or .txt path", id="log-filepath")
+                    yield Input(placeholder=self._log_path_placeholder(), id="log-filepath")
                     yield Button("Start Logging", id="toggle-logging")
 
                     yield Button("Copy Workspace", id="copy-workspace-btn", variant="default", disabled=True)
@@ -1292,8 +1333,8 @@ class SerialHubApp(App[None]):
             with Vertical(id="right-panel", classes="panel"):
                 with Horizontal(id="right-panel-header"):
                     # yield Static("", id="right-panel-spacer")
-                    yield Button("CONFIG EDITOR", id="config-editor-btn", variant="warning")
-                    yield Button("USER SETTINGS", id="user-settings-btn", variant="default")
+                    yield Button("Editor", id="config-editor-btn", variant="warning")
+                    yield Button("Settings", id="user-settings-btn", variant="default")
                 
                 yield Select([], id="command-config-select", prompt="Select command config", allow_blank=True)
                 # yield Static(
@@ -1305,6 +1346,7 @@ class SerialHubApp(App[None]):
 
         with Horizontal(id="footer-row"):
             yield Footer(id="app-footer")
+            yield Static(self._app_version_text(), id="app-version")
 
     def on_mount(self) -> None:
         self._set_panel_border_titles()
@@ -1376,6 +1418,8 @@ class SerialHubApp(App[None]):
                 startup_command_config=self.current_user.startup_command_config,
                 theme_mode=self.theme_mode,
                 log_folder=self.current_user.log_folder,
+                show_activity_widget=self.current_user.show_activity_widget,
+                show_bottom_status_bar=self.current_user.show_bottom_status_bar,
                 username=self.current_user.username,
             )
         )
@@ -1623,6 +1667,8 @@ class SerialHubApp(App[None]):
         startup_command_config: str,
         theme_mode: str,
         log_folder: str,
+        show_activity_widget: bool,
+        show_bottom_status_bar: bool,
     ) -> bool:
         if not self.current_user:
             return False
@@ -1643,6 +1689,8 @@ class SerialHubApp(App[None]):
         self.theme = resolve_textual_theme_name(self.theme_mode)
         self.current_user.theme = self.theme
         self.current_user.log_folder = normalized_log_folder
+        self.current_user.show_activity_widget = show_activity_widget
+        self.current_user.show_bottom_status_bar = show_bottom_status_bar
         self.current_user.startup_command_config = normalized_startup
         save_user_profile(self.current_user)
 
@@ -1657,6 +1705,7 @@ class SerialHubApp(App[None]):
         log_input = self._query_ui("#log-filepath", Input)
         config_button = self._query_ui("#config-editor-btn", Button)
         settings_button = self._query_ui("#user-settings-btn", Button)
+        log_input.placeholder = self._log_path_placeholder()
 
         if self.current_user:
             summary.update(f"user: {self.current_user.username}")
@@ -1669,8 +1718,23 @@ class SerialHubApp(App[None]):
             config_button.disabled = True
             settings_button.disabled = True
 
+        self._apply_ui_visibility_preferences()
         self._refresh_tcp_favorites()
         self._refresh_command_configs()
+
+    def _show_activity_widget_enabled(self) -> bool:
+        if not self.current_user:
+            return True
+        return self.current_user.show_activity_widget
+
+    def _show_bottom_status_bar_enabled(self) -> bool:
+        if not self.current_user:
+            return True
+        return self.current_user.show_bottom_status_bar
+
+    def _apply_ui_visibility_preferences(self) -> None:
+        self._query_ui("#workspace-data-widget", Vertical).display = self._show_activity_widget_enabled()
+        self._query_ui("#workspace-status", Horizontal).display = self._show_bottom_status_bar_enabled()
 
     def _refresh_tcp_favorites(self, *, selected_key: str | None = None) -> None:
         select = self._query_ui("#tcp-favorites-list", Select)
@@ -1853,9 +1917,9 @@ class SerialHubApp(App[None]):
             self.selected_port = None
             device_list.clear()
             self._query_ui("#device-meta", Static).update(
-                "No serial devices detected. Use the TCP/IP tab to connect by IP."
+                "No serial devices detected."
             )
-            self.notify("No serial devices found. TCP/IP connections are still available.")
+            self.notify("No serial devices found.")
             return
 
         known_ports = {device.port for device in self.discovered_devices}

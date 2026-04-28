@@ -153,6 +153,8 @@ class UserProfile:
     username: str
     theme: str = _DEFAULT_THEME_NAME
     log_folder: str = ""
+    show_activity_widget: bool = True
+    show_bottom_status_bar: bool = True
     startup_command_config: str = ""
     command_configs: list[str] = field(default_factory=lambda: ["blank"])
     tcp_favorites: list[TcpFavorite] = field(default_factory=list)
@@ -162,6 +164,8 @@ class UserProfile:
             "USERNAME": self.username,
             "THEME": self.theme,
             "LOG_FOLDER": self.log_folder,
+            "SHOW_ACTIVITY_WIDGET": self.show_activity_widget,
+            "SHOW_BOTTOM_STATUS_BAR": self.show_bottom_status_bar,
             "STARTUP_COMMAND_CONFIG": self.startup_command_config,
             "COMMAND_CONFIGS": self.command_configs,
             "TCP_FAVORITES": [favorite.to_dict() for favorite in self.tcp_favorites],
@@ -172,6 +176,8 @@ class UserProfile:
         username = normalize_username(str(payload.get("USERNAME", "")))
         theme = str(payload.get("THEME", _DEFAULT_THEME_NAME)).strip() or _DEFAULT_THEME_NAME
         log_folder = str(payload.get("LOG_FOLDER", "")).strip()
+        show_activity_widget = bool(payload.get("SHOW_ACTIVITY_WIDGET", True))
+        show_bottom_status_bar = bool(payload.get("SHOW_BOTTOM_STATUS_BAR", True))
         startup_command_config = str(payload.get("STARTUP_COMMAND_CONFIG", "")).strip()
         if startup_command_config:
             startup_command_config = normalize_command_config_name(startup_command_config)
@@ -195,6 +201,8 @@ class UserProfile:
             username=username,
             theme=theme,
             log_folder=log_folder,
+            show_activity_widget=show_activity_widget,
+            show_bottom_status_bar=show_bottom_status_bar,
             startup_command_config=startup_command_config,
             command_configs=command_configs,
             tcp_favorites=tcp_favorites,
@@ -334,6 +342,8 @@ def save_user_profile(profile: UserProfile) -> None:
             username=normalized,
             theme=profile.theme,
             log_folder=profile.log_folder,
+            show_activity_widget=profile.show_activity_widget,
+            show_bottom_status_bar=profile.show_bottom_status_bar,
             startup_command_config=(
                 normalize_command_config_name(profile.startup_command_config)
                 if profile.startup_command_config
