@@ -220,7 +220,7 @@ class UserLoginScreen(ModalScreen[None]):
         width: 48;
         max-width: 72;
         background: $surface;
-        border: heavy $primary;
+        border: round $primary;
         border-title-align: center;
         padding: 1 2;
         height: auto;
@@ -311,7 +311,7 @@ class UserSettingsScreen(ModalScreen[None]):
         width: 56;
         max-width: 84;
         background: $surface;
-        border: heavy $primary;
+        border: round $primary;
         border-title-align: center;
         padding: 1 2;
         height: auto;
