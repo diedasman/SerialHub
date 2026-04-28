@@ -29,6 +29,7 @@ from textual.widgets import (  # type: ignore
     TabPane,
 )
 
+from serialhub import __version__
 from serialhub.config import get_data_dir, get_logs_dir
 from serialhub.core.device_manager import DeviceManager
 from serialhub.core.models import (
@@ -1040,6 +1041,8 @@ class ConfigEditorScreen(Screen[None]):
 class SerialHubApp(App[None]):
     CSS = load_app_css()
     ENABLE_COMMAND_PALETTE = False
+    TITLE = "SerialHub"
+    SUB_TITLE = f"v{__version__}"
     WORKSPACE_PLACEHOLDER_ID = "workspace-empty"
     BINDINGS = [
         Binding("r", "refresh_devices", "Refresh Devices"),
@@ -1103,6 +1106,9 @@ class SerialHubApp(App[None]):
 
     def _workspace_placeholder_text(self) -> str:
         return self._logo_content or "SerialHub"
+
+    def _app_version_text(self) -> str:
+        return f"v{__version__}"
 
     def _query_ui(self, selector: str, expect_type: type[Widget]) -> Widget:
         for screen in reversed(tuple(self.screen_stack)):
@@ -1305,6 +1311,7 @@ class SerialHubApp(App[None]):
 
         with Horizontal(id="footer-row"):
             yield Footer(id="app-footer")
+            yield Static(self._app_version_text(), id="app-version")
 
     def on_mount(self) -> None:
         self._set_panel_border_titles()

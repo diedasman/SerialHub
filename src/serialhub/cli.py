@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import sys
 
+from serialhub import __version__
 from serialhub.app import SerialHubApp
 from serialhub.web import DEFAULT_WEB_HOST, DEFAULT_WEB_PORT, run_web_app
 
@@ -20,6 +21,11 @@ def parse_port(value: str) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="serialhub", description="SerialHub terminal and protocol tool")
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+    )
     parser.add_argument(
         "--web",
         action="store_true",

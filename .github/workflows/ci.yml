@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - sg
     tags:
       - "v*"
   pull_request:
