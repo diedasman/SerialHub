@@ -853,6 +853,7 @@ def test_workspace_log_coalesces_split_serial_line_fragments() -> None:
 
         async with app.run_test() as pilot:
             app._connect_selected_device()
+            await pilot.pause()
             app._handle_serial_event_ui(
                 SerialEvent(device_id="COM1", port="COM1", direction="RX", payload=b"METER|mode=BASIC|ms=199")
             )
