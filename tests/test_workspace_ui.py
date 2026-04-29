@@ -846,6 +846,34 @@ def test_copy_workspace_button_copies_active_workspace_stream_to_clipboard() -> 
     asyncio.run(scenario())
 
 
+def test_workspace_log_coalesces_split_serial_line_fragments() -> None:
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False)
+        app.device_manager = FakeDeviceManager()
+
+        async with app.run_test() as pilot:
+            app._connect_selected_device()
+            app._handle_serial_event_ui(
+                SerialEvent(device_id="COM1", port="COM1", direction="RX", payload=b"METER|mode=BASIC|ms=199")
+            )
+            await pilot.pause()
+
+            raw_log = app._workspace_logs["COM1"]
+            first_pass = [line.text.rstrip() for line in raw_log.lines if line.text.strip()]
+            assert first_pass[-1].endswith("METER|mode=BASIC|ms=199")
+
+            app._handle_serial_event_ui(
+                SerialEvent(device_id="COM1", port="COM1", direction="RX", payload=b"973\n")
+            )
+            await pilot.pause()
+
+            rendered = [line.text.rstrip() for line in raw_log.lines if line.text.strip()]
+            assert rendered[-1].endswith("METER|mode=BASIC|ms=199973")
+            assert not any(text.endswith("METER|mode=BASIC|ms=199") for text in rendered)
+
+    asyncio.run(scenario())
+
+
 def test_current_user_summary_is_positioned_beside_workspace_selection(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
     profile = create_user_profile("alice")

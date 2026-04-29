@@ -126,6 +126,16 @@ class SerialEvent:
         return "".join(chr(b) if 32 <= b < 127 else "." for b in self.payload)
 
 
+def can_coalesce_serial_payload(previous: SerialEvent, current: SerialEvent) -> bool:
+    return (
+        previous.direction in {"RX", "TX"}
+        and current.direction == previous.direction
+        and previous.payload is not None
+        and current.payload is not None
+        and not previous.payload.endswith((b"\n", b"\r"))
+    )
+
+
 @dataclass(slots=True)
 class MacroDefinition:
     name: str

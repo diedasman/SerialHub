@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from serialhub.core.models import ConnectionConfig, DeviceTransport, SerialEvent
+from serialhub.core.models import ConnectionConfig, DeviceTransport, SerialEvent, can_coalesce_serial_payload
 from serialhub.logging.session_logger import SessionLogger
 
 WORKSPACE_DATASTREAM_WINDOW = 32
@@ -70,12 +70,26 @@ class DeviceSession:
     timestamps_enabled: bool = True
     workspace_datastream: WorkspaceDatastream = field(default_factory=WorkspaceDatastream)
 
-    def add_raw_event(self, event: SerialEvent, limit: int = 1000) -> None:
+    def add_raw_event(self, event: SerialEvent, limit: int = 1000) -> bool:
+        if self._coalesce_raw_event(event):
+            return True
         self.raw_events.append(event)
         if len(self.raw_events) > limit:
             self.raw_events = self.raw_events[-limit:]
+        return False
 
     def add_parsed_line(self, line: str, limit: int = 1000) -> None:
         self.parsed_lines.append(line)
         if len(self.parsed_lines) > limit:
             self.parsed_lines = self.parsed_lines[-limit:]
+
+    def _coalesce_raw_event(self, event: SerialEvent) -> bool:
+        if not self.raw_events:
+            return False
+
+        previous = self.raw_events[-1]
+        if not can_coalesce_serial_payload(previous, event):
+            return False
+
+        previous.payload += event.payload
+        return True

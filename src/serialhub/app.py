@@ -2426,7 +2426,7 @@ class SerialHubApp(App[None]):
         if not session:
             return
 
-        session.add_raw_event(event)
+        merged_into_previous = session.add_raw_event(event)
         session.workspace_datastream.record_event(event)
 
         if session.logger and session.logger.is_running:
@@ -2442,6 +2442,10 @@ class SerialHubApp(App[None]):
         else:
             info_text = event.text or ""
             session.add_parsed_line(f"{prefix}{event.direction} {info_text}")
+
+        if merged_into_previous:
+            self._refresh_workspace_state(event.device_id)
+            return
 
         self._append_workspace_event(event.device_id, event)
         self._update_workspace_tab_label(event.device_id)
