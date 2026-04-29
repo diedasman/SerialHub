@@ -37,6 +37,7 @@ Windows executable builds are produced by GitHub Actions in [`.github/workflows/
 
 - Pushes to `main` run linting, tests, and a Windows executable build.
 - Manual runs through `workflow_dispatch` also produce the executable artifact.
+- The GitHub Actions artifact downloads as a single zip containing the Windows bundle folder with the `.exe`, `README`, and `LICENSE`.
 - Tags matching `v*` publish the zipped Windows build to GitHub Releases.
 - Built binaries are not committed to the repository.
 - To brand the Windows executable, place a Windows `.ico` file at `src/serialhub/assets/app.ico`; the CI PyInstaller step will use it automatically when present.

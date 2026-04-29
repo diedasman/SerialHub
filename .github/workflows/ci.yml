@@ -113,9 +113,7 @@ jobs:
         with:
           name: ${{ env.APP_NAME }}-windows-amd64
           if-no-files-found: error
-          path: |
-            dist/${{ env.APP_NAME }}.exe
-            dist/${{ env.APP_NAME }}-windows-amd64.zip
+          path: dist/${{ env.APP_NAME }}-windows-amd64
 
       - name: Publish GitHub release assets
         if: startsWith(github.ref, 'refs/tags/v')
