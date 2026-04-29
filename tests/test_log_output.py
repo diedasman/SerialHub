@@ -102,11 +102,25 @@ def test_active_workspace_text_coalesces_split_serial_line() -> None:
     )
 
     assert (
-        session.add_raw_event(SerialEvent(device_id="COM1", port="COM1", direction="RX", payload=b"METER|ms=199"))
+        session.add_raw_event(
+            SerialEvent(
+                device_id="COM1",
+                port="COM1",
+                direction="RX",
+                payload=b"METER|ms=199",
+            )
+        )
         is False
     )
     assert (
-        session.add_raw_event(SerialEvent(device_id="COM1", port="COM1", direction="RX", payload=b"973\nNEXT"))
+        session.add_raw_event(
+            SerialEvent(
+                device_id="COM1",
+                port="COM1",
+                direction="RX",
+                payload=b"973\nNEXT",
+            )
+        )
         is True
     )
     assert (
