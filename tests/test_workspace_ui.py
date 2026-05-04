@@ -1181,7 +1181,13 @@ def test_tcp_favorites_button_persists_current_ip_and_port_to_user_profile(monke
             await pilot.pause()
 
             app.query_one("#tcp-favorites-btn", Button).press()
-            await pilot.pause()
+            await wait_for_condition(
+                lambda: bool(
+                    (profile := load_user_profile("alice"))
+                    and len(profile.tcp_favorites) == 1
+                ),
+                pilot,
+            )
 
             reloaded_profile = load_user_profile("alice")
             assert reloaded_profile is not None

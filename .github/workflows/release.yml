@@ -116,7 +116,8 @@ jobs:
       - name: Read project version
         id: version
         run: |
-          version="$(PYTHONPATH=src python -c 'import serialhub; print(serialhub.__version__.split("+", 1)[0])')"
+          base_version="$(PYTHONPATH=src python -c 'import serialhub; print(serialhub.__version__.split("+", 1)[0])')"
+          version="${base_version}.${GITHUB_RUN_NUMBER}"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Download build artifacts
