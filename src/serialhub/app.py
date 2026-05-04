@@ -2757,7 +2757,7 @@ class SerialHubApp(App[None]):
             "Workspace",
             Vertical(
                 Static(
-                    " " + self._workspace_placeholder_text(),
+                    self._workspace_placeholder_text(),
                     id="workspace-placeholder",
                     classes="workspace-content workspace-placeholder-text",
                 ),
