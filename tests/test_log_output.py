@@ -1,4 +1,7 @@
+import asyncio
 from datetime import datetime
+
+from textual.widgets import Button, Checkbox, Input
 
 from serialhub.app import SerialHubApp
 from serialhub.core.models import SerialConfig, SerialEvent
@@ -6,7 +9,7 @@ from serialhub.core.session import DeviceSession
 from serialhub.logging.session_logger import SessionLogger
 
 
-def test_raw_workspace_output_omits_rx_tx_tags() -> None:
+def test_raw_workspace_output_includes_rx_tx_chevrons_by_default() -> None:
     app = SerialHubApp(require_login=False)
     session = DeviceSession(
         device_id="COM1",
@@ -14,6 +17,21 @@ def test_raw_workspace_output_omits_rx_tx_tags() -> None:
         transport="serial",
         config=SerialConfig(),
         timestamps_enabled=False,
+    )
+    event = SerialEvent(device_id="COM1", port="COM1", direction="RX", payload=b"hello\r\n")
+
+    assert app._render_raw_event_lines(session, event) == ["<< hello"]
+
+
+def test_raw_workspace_output_omits_rx_tx_chevrons_when_disabled() -> None:
+    app = SerialHubApp(require_login=False)
+    session = DeviceSession(
+        device_id="COM1",
+        port="COM1",
+        transport="serial",
+        config=SerialConfig(),
+        timestamps_enabled=False,
+        chevrons_enabled=False,
     )
     event = SerialEvent(device_id="COM1", port="COM1", direction="RX", payload=b"hello\r\n")
 
@@ -38,6 +56,26 @@ def test_session_logger_strips_line_terminators_without_periods(tmp_path) -> Non
 
     lines = log_path.read_text(encoding="utf-8").splitlines()
     assert lines[1] == "2026-04-19T10:30:15.123 meter-ready"
+
+
+def test_session_logger_writes_chevrons_when_enabled(tmp_path) -> None:
+    log_path = tmp_path / "session.txt"
+    logger = SessionLogger(log_path, chevrons_enabled=True)
+    timestamp = datetime(2026, 4, 19, 10, 30, 15, 123000)
+    event = SerialEvent(
+        device_id="COM1",
+        port="COM1",
+        direction="TX",
+        payload=b"set-mode\r\n",
+        timestamp=timestamp,
+    )
+
+    logger.start()
+    logger.log_event(event)
+    logger.stop()
+
+    lines = log_path.read_text(encoding="utf-8").splitlines()
+    assert lines[1] == "2026-04-19T10:30:15.123 >> set-mode"
 
 
 def test_session_logger_coalesces_split_serial_fragments(tmp_path) -> None:
@@ -129,4 +167,53 @@ def test_active_workspace_text_coalesces_split_serial_line() -> None:
     )
 
     assert len(session.raw_events) == 1
-    assert app._active_workspace_text(session) == "METER|ms=199973\nNEXT-LINE"
+    assert app._active_workspace_text(session) == "<< METER|ms=199973\n<< NEXT-LINE"
+
+
+def test_save_log_writes_full_workspace_with_current_format_options(tmp_path) -> None:
+    timestamp = datetime(2026, 4, 19, 10, 30, 15, 123000)
+    log_path = tmp_path / "workspace.txt"
+
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False)
+
+        async with app.run_test() as pilot:
+            session = DeviceSession(
+                device_id="COM1",
+                port="COM1",
+                transport="serial",
+                config=SerialConfig(),
+            )
+            session.add_raw_event(
+                SerialEvent(
+                    device_id="COM1",
+                    port="COM1",
+                    direction="RX",
+                    payload=b"meter-ready\r\n",
+                    timestamp=timestamp,
+                )
+            )
+            app.sessions["COM1"] = session
+            app._ensure_workspace_for_device("COM1")
+            app._set_active_workspace("COM1")
+            await pilot.pause()
+
+            save_button = app.query_one("#toggle-logging", Button)
+            assert save_button.label.plain == "Save Log"
+
+            app.query_one("#log-filepath", Input).value = str(log_path)
+            app.query_one("#timestamp-checkbox", Checkbox).value = True
+            app.query_one("#chevron-checkbox", Checkbox).value = True
+            app.action_toggle_logging_shortcut()
+            await pilot.pause()
+
+            assert log_path.read_text(encoding="utf-8") == "[10:30:15.123] << meter-ready\n"
+
+            app.query_one("#timestamp-checkbox", Checkbox).value = False
+            app.query_one("#chevron-checkbox", Checkbox).value = False
+            app.action_toggle_logging_shortcut()
+            await pilot.pause()
+
+            assert log_path.read_text(encoding="utf-8") == "meter-ready\n"
+
+    asyncio.run(scenario())

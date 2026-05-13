@@ -68,6 +68,8 @@ class DeviceSession:
     parsed_lines: list[str] = field(default_factory=list)
     logger: SessionLogger | None = None
     timestamps_enabled: bool = True
+    chevrons_enabled: bool = True
+    label: str = ""
     workspace_datastream: WorkspaceDatastream = field(default_factory=WorkspaceDatastream)
 
     def add_raw_event(self, event: SerialEvent, limit: int = 1000) -> bool:

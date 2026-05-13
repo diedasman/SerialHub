@@ -1,13 +1,23 @@
 from __future__ import annotations
 
+import sys
 import threading
 from collections.abc import Callable
+from pathlib import Path
 
 from serial.tools import list_ports
 
 from serialhub.core.models import DeviceConnection, DeviceInfo, SerialConfig, SerialEvent, TcpConfig
 from serialhub.core.serial_connection import SerialConnection
 from serialhub.core.tcp_connection import TcpConnection
+
+LINUX_SERIAL_DEVICE_PREFIXES = ("ttyUSB", "ttyACM", "ttyAMA")
+
+
+def is_supported_serial_port(device: str) -> bool:
+    if not sys.platform.startswith("linux"):
+        return True
+    return Path(device).name.startswith(LINUX_SERIAL_DEVICE_PREFIXES)
 
 
 class DeviceManager:
@@ -19,6 +29,7 @@ class DeviceManager:
         devices = [
             DeviceInfo(port=port.device, description=port.description or "", hwid=port.hwid or "")
             for port in list_ports.comports()
+            if is_supported_serial_port(port.device)
         ]
         devices.sort(key=lambda d: d.port)
         return devices

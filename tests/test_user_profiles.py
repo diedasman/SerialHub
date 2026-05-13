@@ -1,7 +1,7 @@
 import asyncio
 import json
 
-from textual.widgets import Input, Static
+from textual.widgets import Input, ListView, Static
 
 from serialhub.app import SerialHubApp, UserLoginScreen
 from serialhub.config import ENV_DATA_DIR
@@ -171,14 +171,15 @@ def test_upsert_tcp_favorite_deduplicates_and_persists(monkeypatch, tmp_path) ->
     monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
     profile = create_user_profile("alice")
 
-    assert upsert_tcp_favorite(profile, "10.0.0.1", 4059) is True
-    assert upsert_tcp_favorite(profile, "10.0.0.1", 4059) is False
+    assert upsert_tcp_favorite(profile, "10.0.0.1", 4059, "bench supply") is True
+    assert upsert_tcp_favorite(profile, "10.0.0.1", 4059, "updated supply") is False
 
     reloaded_profile = load_user_profile("alice")
     assert reloaded_profile is not None
     assert len(reloaded_profile.tcp_favorites) == 1
     assert reloaded_profile.tcp_favorites[0].host == "10.0.0.1"
     assert reloaded_profile.tcp_favorites[0].port == 4059
+    assert reloaded_profile.tcp_favorites[0].label == "updated supply"
 
 
 def test_command_value_editor_escape_round_trip() -> None:
@@ -309,6 +310,35 @@ def test_message_input_history_navigation_uses_user_history(monkeypatch, tmp_pat
             await pilot.press("down")
             await pilot.pause()
             assert tx_input.value == "draft"
+
+    asyncio.run(scenario())
+
+
+def test_command_history_tab_lists_user_message_history(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
+    profile = create_user_profile("alice")
+    get_user_message_history_path("alice").write_text(
+        "[2026-04-19 10:00:00] first\r\n[2026-04-19 10:05:00] second\r\n",
+        encoding="utf-8",
+    )
+
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False, startup_user=profile)
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            history_list = app.query_one("#command-history-list", ListView)
+            assert len(history_list.children) == 2
+            values = [getattr(item, "command_value", "") for item in history_list.children]
+            assert values == ["second", "first"]
+
+            history_list.focus()
+            history_list.index = 0
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert app.query_one("#tx-input", Input).value == "second"
 
     asyncio.run(scenario())
 

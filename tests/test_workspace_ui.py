@@ -7,6 +7,7 @@ from textual.widgets import Button, Input, Select, Sparkline, Static, Switch, Ta
 
 from serialhub.app import (
     ConfigEditorScreen,
+    ConfigGroupScreen,
     ConnectionStatusSwitch,
     DeleteConfigConfirmScreen,
     SerialHubApp,
@@ -243,7 +244,8 @@ def test_config_editor_loads_focused_file_into_structured_form(monkeypatch, tmp_
             assert app.screen.query_one("#config-name-input", Input).value == "DEFAULTS"
             assert app.screen.query_one("#config-command-label-1", Input).value == "PING"
             assert app.screen.query_one("#config-command-value-1", Input).value == "ping\\r\\n"
-            assert app.screen.query_one("#config-command-label-2", Input).value == "SET / TIME"
+            assert app.screen.query_one("#config-command-label-2", Input).value == "TIME"
+            assert app.screen.query_one("#config-command-group-2", Select).value == "SET"
             assert app.screen.query_one("#config-command-value-2", Input).value == "set time + % &\\r\\n"
 
             preview = app.screen.query_one("#config-editor-preview", Static)
@@ -272,18 +274,28 @@ def test_config_editor_new_flow_adds_command_rows_and_saves_form_data(monkeypatc
             label_1 = app.screen.query_one("#config-command-label-1", Input)
             value_1 = app.screen.query_one("#config-command-value-1", Input)
             name_input.value = "field_setup"
-            label_1.value = "SET / DATE"
+            label_1.value = "DATE"
             value_1.value = "set date\\r\\n"
+            app.screen.query_one("#config-command-group-1", Select).value = "__new__"
+            group_screen = await wait_for_screen(app, ConfigGroupScreen, pilot)
+            group_screen.query_one("#config-group-name", Input).value = "SET"
+            group_screen.query_one("#config-group-save", Button).press()
             await pilot.pause()
+            await wait_for_screen(app, ConfigEditorScreen, pilot)
 
             app.screen.query_one("#config-add-command", Button).press()
             await pilot.pause()
             await pilot.pause()
             label_2 = app.screen.query_one("#config-command-label-2", Input)
             value_2 = app.screen.query_one("#config-command-value-2", Input)
-            label_2.value = "GET / STATUS"
+            label_2.value = "STATUS"
             value_2.value = "get status + 100% & ok\\r\\n"
+            app.screen.query_one("#config-command-group-2", Select).value = "__new__"
+            group_screen = await wait_for_screen(app, ConfigGroupScreen, pilot)
+            group_screen.query_one("#config-group-name", Input).value = "GET"
+            group_screen.query_one("#config-group-save", Button).press()
             await pilot.pause()
+            await wait_for_screen(app, ConfigEditorScreen, pilot)
 
             preview = app.screen.query_one("#config-editor-preview", Static)
             assert '"SET"' in static_text(preview)
@@ -309,6 +321,58 @@ def test_config_editor_new_flow_adds_command_rows_and_saves_form_data(monkeypatc
             assert "field_setup" in app._command_configs
 
     asyncio.run(scenario())
+
+
+def test_config_editor_saves_command_button_color(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
+    profile = create_user_profile("alice")
+
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False, startup_user=profile)
+        app.device_manager = FakeDeviceManager()
+
+        async with app.run_test() as pilot:
+            await pilot.click("#config-editor-btn")
+            await pilot.pause()
+
+            assert isinstance(app.screen, ConfigEditorScreen)
+            app.screen.query_one("#config-new", Button).press()
+            await pilot.pause()
+
+            app.screen.query_one("#config-name-input", Input).value = "colored"
+            app.screen.query_one("#config-command-label-1", Input).value = "PING"
+            app.screen.query_one("#config-command-value-1", Input).value = "ping\\r\\n"
+            app.screen.query_one("#config-command-color-1", Select).value = "success"
+            await pilot.pause()
+
+            app.screen.query_one("#config-save", Button).press()
+            await pilot.pause()
+
+            saved_payload = json.loads(
+                get_user_command_config_path("alice", "colored").read_text(encoding="utf-8")
+            )
+            assert saved_payload["COMMANDS"]["PING"] == {
+                "VALUE": "ping\r\n",
+                "COLOR": "success",
+            }
+
+            app._refresh_command_configs(selected_key="colored")
+            await pilot.pause()
+
+            command_button = next(iter(app._command_buttons.values()))
+            assert command_button.color == "success"
+
+    asyncio.run(scenario())
+
+
+def test_primary_command_color_normalizes_to_explicit_blue() -> None:
+    app = SerialHubApp(require_login=False)
+    button = app._make_command_button("PING", (), "ping", "primary", 0)
+
+    assert app._command_buttons[str(button.id)].color == "blue"
+    assert "command-color-blue" in button.classes
+    assert button.variant == "default"
+
 
 def test_config_editor_delete_button_removes_command_row(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
@@ -350,7 +414,8 @@ def test_config_editor_delete_button_removes_command_row(monkeypatch, tmp_path) 
             await pilot.pause()
             await pilot.pause()
 
-            assert app.screen.query_one("#config-command-label-1", Input).value == "GET / STATUS"
+            assert app.screen.query_one("#config-command-label-1", Input).value == "STATUS"
+            assert app.screen.query_one("#config-command-group-1", Select).value == "GET"
             assert app.screen.query_one("#config-command-row-2").display is False
 
             app.screen.query_one("#config-save", Button).press()
@@ -1075,6 +1140,7 @@ def test_tcp_tab_connects_workspace_from_ip_and_port() -> None:
             connection_tabs.active = "connection-tcp"
             app.query_one("#ip-input", Input).value = "192.168.0.10"
             app.query_one("#port-input", Input).value = "4059"
+            app.query_one("#tcp-label-input", Input).value = "PLC A"
             await pilot.pause()
 
             await pilot.click("#connect-btn")
@@ -1082,8 +1148,10 @@ def test_tcp_tab_connects_workspace_from_ip_and_port() -> None:
 
             assert "192.168.0.10:4059" in app.sessions
             assert app.sessions["192.168.0.10:4059"].transport == "tcp"
+            assert app.sessions["192.168.0.10:4059"].label == "PLC A"
             assert app.active_device_id == "192.168.0.10:4059"
             assert "192.168.0.10:4059" in app._workspace_logs
+            assert app._workspace_tab_label("192.168.0.10:4059") == "PLC A [live]"
             assert static_text(app.query_one("#workspace-selection", Static)) == (
                 "Active workspace: 192.168.0.10:4059 (connected)"
             )
@@ -1104,6 +1172,7 @@ def test_tcp_connect_persists_user_ip_and_port_history(monkeypatch, tmp_path) ->
             connection_tabs.active = "connection-tcp"
             app.query_one("#ip-input", Input).value = "192.168.0.10"
             app.query_one("#port-input", Input).value = "4059"
+            app.query_one("#tcp-label-input", Input).value = "PLC A"
             await pilot.pause()
 
             await pilot.click("#connect-btn")
@@ -1127,6 +1196,7 @@ def test_tcp_clear_button_resets_ip_and_port_inputs() -> None:
             connection_tabs.active = "connection-tcp"
             app.query_one("#ip-input", Input).value = "192.168.0.10"
             app.query_one("#port-input", Input).value = "4059"
+            app.query_one("#tcp-label-input", Input).value = "PLC A"
             await pilot.pause()
 
             app.query_one("#clear-tcp-inputs", Button).press()
@@ -1134,6 +1204,7 @@ def test_tcp_clear_button_resets_ip_and_port_inputs() -> None:
 
             assert app.query_one("#ip-input", Input).value == ""
             assert app.query_one("#port-input", Input).value == ""
+            assert app.query_one("#tcp-label-input", Input).value == ""
 
     asyncio.run(scenario())
 
@@ -1148,6 +1219,7 @@ def test_tcp_disconnect_preserves_workspace_until_closed() -> None:
             connection_tabs.active = "connection-tcp"
             app.query_one("#ip-input", Input).value = "192.168.0.10"
             app.query_one("#port-input", Input).value = "4059"
+            app.query_one("#tcp-label-input", Input).value = "PLC A"
             await pilot.pause()
 
             await pilot.click("#connect-btn")
@@ -1207,6 +1279,7 @@ def test_tcp_favorites_button_persists_current_ip_and_port_to_user_profile(monke
             connection_tabs.active = "connection-tcp"
             app.query_one("#ip-input", Input).value = "192.168.0.10"
             app.query_one("#port-input", Input).value = "4059"
+            app.query_one("#tcp-label-input", Input).value = "PLC A"
             await pilot.pause()
 
             app.query_one("#tcp-favorites-btn", Button).press()
@@ -1223,6 +1296,7 @@ def test_tcp_favorites_button_persists_current_ip_and_port_to_user_profile(monke
             assert len(reloaded_profile.tcp_favorites) == 1
             assert reloaded_profile.tcp_favorites[0].host == "192.168.0.10"
             assert reloaded_profile.tcp_favorites[0].port == 4059
+            assert reloaded_profile.tcp_favorites[0].label == "PLC A"
 
     asyncio.run(scenario())
 
@@ -1231,8 +1305,8 @@ def test_tcp_favorites_select_lists_saved_connections_and_populates_inputs(monke
     monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
     profile = create_user_profile("alice")
 
-    upsert_tcp_favorite(profile, "192.168.0.10", 4059)
-    upsert_tcp_favorite(profile, "10.0.0.8", 9000)
+    upsert_tcp_favorite(profile, "192.168.0.10", 4059, "PLC A")
+    upsert_tcp_favorite(profile, "10.0.0.8", 9000, "Gateway")
     reloaded_profile = load_user_profile("alice")
     assert reloaded_profile is not None
 
@@ -1251,6 +1325,7 @@ def test_tcp_favorites_select_lists_saved_connections_and_populates_inputs(monke
 
             assert app.query_one("#ip-input", Input).value == "10.0.0.8"
             assert app.query_one("#port-input", Input).value == "9000"
+            assert app.query_one("#tcp-label-input", Input).value == "Gateway"
 
     asyncio.run(scenario())
 

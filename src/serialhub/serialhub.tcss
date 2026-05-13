@@ -282,10 +282,15 @@ TabPane {
     # width: 2fr;
 }
 
-#timestamp-checkbox {
+#timestamp-checkbox,
+#chevron-checkbox {
     width: auto;
     margin-right: 1;
     margin-top: 0;
+}
+
+#chevron-checkbox {
+    min-width: 10;
 }
 
 #command-config-select {
@@ -293,11 +298,26 @@ TabPane {
     margin-top: 1;
 }
 
+#command-panel-tabs {
+    height: 1fr;
+    min-height: 1;
+}
+
 #command-buttons-scroll {
     height: 1fr;
     border: solid $secondary;
     background: $background;
     # padding: 0 1;
+}
+
+#command-history-list {
+    height: 1fr;
+    border: solid $secondary;
+    background: $background;
+}
+
+.command-history-item {
+    width: 1fr;
 }
 
 .workspace-pane {
@@ -390,6 +410,18 @@ TabPane {
     margin-bottom: 1;
     margin-right: 1;
     # margin-left: 1;
+    height: auto;
+}
+
+Button.command-color-blue {
+    background: #1f6feb;
+    color: #000000;
+}
+
+Button.command-color-blue:hover,
+Button.command-color-blue:focus {
+    background: #388bfd;
+    color: #ffffff;
 }
 
 .command-row {
@@ -398,7 +430,7 @@ TabPane {
 }
 
 .command-group {
-    margin-bottom: 1;
+    # margin-bottom: 1;
     padding-left: 1;
     border-left: heavy $panel;
     border-bottom: heavy $panel;
@@ -429,7 +461,8 @@ TabPane {
     margin-bottom: 1;
 }
 
-#port-input {
+#port-input,
+#tcp-label-input {
     margin-bottom: 1;
 }
 
@@ -534,6 +567,16 @@ TabPane {
 }
 
 .config-command-value-input {
+    margin-right: 1;
+}
+
+.config-command-group-select {
+    width: 16;
+    margin-right: 1;
+}
+
+.config-command-color-select {
+    width: 16;
     margin-right: 1;
 }
 

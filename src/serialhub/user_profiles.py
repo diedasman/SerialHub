@@ -130,22 +130,25 @@ def get_app_state_path() -> Path:
 class TcpFavorite:
     host: str
     port: int
+    label: str = ""
 
     def to_dict(self) -> dict[str, object]:
         return {
             "HOST": self.host,
             "PORT": self.port,
+            "LABEL": self.label,
         }
 
     @classmethod
     def from_dict(cls, payload: dict[str, object]) -> TcpFavorite:
         host = str(payload.get("HOST", "")).strip()
         port = int(payload.get("PORT", 0) or 0)
+        label = str(payload.get("LABEL", "")).strip()
         if not host:
             raise ValueError("TCP favorite host cannot be blank.")
         if port <= 0:
             raise ValueError("TCP favorite port must be greater than zero.")
-        return cls(host=host, port=port)
+        return cls(host=host, port=port, label=label)
 
 
 @dataclass(slots=True)
@@ -304,8 +307,8 @@ def delete_command_config_document(profile: UserProfile, path: Path) -> None:
     save_user_profile(profile)
 
 
-def upsert_tcp_favorite(profile: UserProfile, host: str, port: int) -> bool:
-    favorite = TcpFavorite(host=str(host).strip(), port=int(port))
+def upsert_tcp_favorite(profile: UserProfile, host: str, port: int, label: str = "") -> bool:
+    favorite = TcpFavorite(host=str(host).strip(), port=int(port), label=str(label).strip())
     existing = _dedupe_tcp_favorites(profile.tcp_favorites)
     added = all(item.host != favorite.host or item.port != favorite.port for item in existing)
     profile.tcp_favorites = _dedupe_tcp_favorites([favorite, *existing])

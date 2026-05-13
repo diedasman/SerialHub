@@ -20,6 +20,8 @@ from textual.widgets import (  # type: ignore
     DirectoryTree,
     Footer,
     Input,
+    ListItem,
+    ListView,
     RichLog,
     Rule,
     Select,
@@ -43,7 +45,6 @@ from serialhub.core.models import (
 )
 from serialhub.core.session import WORKSPACE_DATASTREAM_WINDOW, DeviceSession
 from serialhub.logging.paths import resolve_log_destination
-from serialhub.logging.session_logger import SessionLogger
 from serialhub.protocols import AsciiBinaryDecoder
 from serialhub.theme import (
     APP_THEMES,
@@ -94,7 +95,20 @@ _INPUT_HISTORY_FALLBACK_FILENAMES = {
 _CONFIG_COMMAND_SEPARATOR = " / "
 _NEW_CONFIG_DOCUMENT_KEY = "__new__"
 _NO_STARTUP_COMMAND_CONFIG = "__none__"
+_CONFIG_GROUP_NONE = "__none__"
+_CONFIG_GROUP_NEW = "__new__"
 _WORKSPACE_IDLE_TICK_SECONDS = 0.75
+_COMMAND_VALUE_KEY = "VALUE"
+_COMMAND_COLOR_KEY = "COLOR"
+_DEFAULT_COMMAND_COLOR = "blue"
+_COMMAND_COLOR_OPTIONS = [
+    ("Blue", "blue"),
+    ("Yellow", "warning"),
+    ("Red", "error"),
+    ("Neutral", "default"),
+    ("Success", "success"),
+]
+_COMMAND_COLOR_VALUES = {value for _label, value in _COMMAND_COLOR_OPTIONS}
 
 
 def load_ascii_logo() -> str:
@@ -117,6 +131,7 @@ def load_app_css() -> str:
 class CommandButtonSpec:
     label: str
     payload: str
+    color: str = _DEFAULT_COMMAND_COLOR
 
 
 @dataclass(slots=True)
@@ -131,12 +146,15 @@ class InputHistoryState:
 class ConfigCommandDraft:
     label: str = ""
     value: str = ""
+    group: str = ""
+    color: str = _DEFAULT_COMMAND_COLOR
 
 
 @dataclass(slots=True)
 class ConfigEditorDocument:
     name: str = ""
     commands: list[ConfigCommandDraft] = field(default_factory=list)
+    groups: list[str] = field(default_factory=list)
     path: Path | None = None
 
 
@@ -145,6 +163,8 @@ class ConfigCommandRowWidgets:
     row: Horizontal
     label_input: Input
     value_input: Input
+    group_select: Select
+    color_select: Select
     delete_button: Button
 
 
@@ -564,6 +584,102 @@ class DeleteConfigConfirmScreen(ModalScreen[bool]):
             self.dismiss(False)
 
 
+class ConfigGroupScreen(ModalScreen[str | None]):
+    DEFAULT_CSS = """
+    ConfigGroupScreen {
+        align: center middle;
+    }
+
+    #config-group-modal {
+        width: 64;
+        max-width: 88;
+        height: auto;
+        background: $surface;
+        border: round $primary;
+        padding: 1 2;
+    }
+
+    #config-group-list {
+        height: 8;
+        border: solid $secondary;
+        margin-bottom: 1;
+    }
+
+    #config-group-name {
+        margin-bottom: 1;
+    }
+
+    #config-group-actions {
+        height: auto;
+    }
+
+    #config-group-cancel,
+    #config-group-save {
+        width: 1fr;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+        Binding("ctrl+s", "save", "Save"),
+    ]
+
+    def __init__(self, groups: Sequence[str]) -> None:
+        super().__init__()
+        self.groups = list(groups)
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="config-group-modal"):
+            yield Static("COMMAND GROUPS", classes="section-title")
+            with ListView(id="config-group-list"):
+                if not self.groups:
+                    yield ListItem(Static("No groups yet.", classes="hint"), disabled=True)
+                for group in self.groups:
+                    item = ListItem(Static(group))
+                    setattr(item, "group_name", group)
+                    yield item
+            yield Input(placeholder="New group name", id="config-group-name")
+            with Horizontal(id="config-group-actions"):
+                yield Button("Cancel", id="config-group-cancel", variant="default")
+                yield Button("Save & Exit", id="config-group-save", variant="success")
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+    def action_save(self) -> None:
+        self._save_group()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        button_id = event.button.id or ""
+        if button_id == "config-group-cancel":
+            self.dismiss(None)
+            return
+        if button_id == "config-group-save":
+            self._save_group()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "config-group-name":
+            self._save_group()
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        if event.list_view.id != "config-group-list":
+            return
+        group = getattr(event.item, "group_name", "")
+        if not isinstance(group, str) or not group:
+            return
+        input_widget = self.query_one("#config-group-name", Input)
+        input_widget.value = group
+        input_widget.cursor_position = len(group)
+        input_widget.focus()
+
+    def _save_group(self) -> None:
+        group = self.query_one("#config-group-name", Input).value.strip()
+        if not group:
+            self.app.notify("Enter a group name before saving.", severity="warning")
+            return
+        self.dismiss(group)
+
+
 class ConfigEditorScreen(Screen[None]):
     BINDINGS = [
         Binding("escape", "close_config_editor", "Close Editor"),
@@ -668,6 +784,24 @@ class ConfigEditorScreen(Screen[None]):
         if input_id == "config-name-input" or input_id.startswith("config-command-"):
             self._update_active_document_from_form()
 
+    def on_select_changed(self, event: Select.Changed) -> None:
+        if self._rendering_form:
+            return
+        select_id = event.select.id or ""
+        if select_id.startswith("config-command-group-"):
+            try:
+                row_id = int(select_id.rsplit("-", 1)[-1])
+            except ValueError:
+                return
+            if event.value == _CONFIG_GROUP_NEW:
+                self._restore_group_select(row_id)
+                self._open_group_screen(row_id)
+                return
+            self._update_active_document_from_form()
+            return
+        if select_id.startswith("config-command-color-"):
+            self._update_active_document_from_form()
+
     def _open_new_document(self) -> None:
         self._store_active_document_draft()
         document = self._document_drafts.get(
@@ -755,6 +889,7 @@ class ConfigEditorScreen(Screen[None]):
         return ConfigEditorDocument(
             name=str(payload.get("NAME", path.stem)).strip() or path.stem,
             commands=entries,
+            groups=self._groups_from_entries(entries),
             path=path,
         )
 
@@ -767,15 +902,34 @@ class ConfigEditorScreen(Screen[None]):
         entries: list[ConfigCommandDraft] = []
         for key, value in commands.items():
             if isinstance(value, dict):
+                if self._is_command_definition(value):
+                    entries.append(
+                        ConfigCommandDraft(
+                            label=key,
+                            value=escape_command_value_for_editor(str(value.get(_COMMAND_VALUE_KEY, ""))),
+                            group=_CONFIG_COMMAND_SEPARATOR.join(path),
+                            color=self._normalize_command_color(value.get(_COMMAND_COLOR_KEY)),
+                        )
+                    )
+                    continue
                 entries.extend(self._flatten_command_entries(value, path=path + (key,)))
                 continue
             entries.append(
                 ConfigCommandDraft(
-                    label=_CONFIG_COMMAND_SEPARATOR.join(path + (key,)),
+                    label=key,
                     value=escape_command_value_for_editor(str(value)),
+                    group=_CONFIG_COMMAND_SEPARATOR.join(path),
                 )
             )
         return entries
+
+    def _groups_from_entries(self, entries: Sequence[ConfigCommandDraft]) -> list[str]:
+        groups: list[str] = []
+        for entry in entries:
+            group = entry.group.strip()
+            if group and group not in groups:
+                groups.append(group)
+        return groups
 
     def _render_empty_editor(self) -> None:
         self._active_document_key = None
@@ -787,6 +941,7 @@ class ConfigEditorScreen(Screen[None]):
         for row_id, widgets in self._command_row_widgets.items():
             self._set_editor_input_value(widgets.label_input, "")
             self._set_editor_input_value(widgets.value_input, "")
+            self._set_group_select_options(widgets.group_select, [], _CONFIG_GROUP_NONE)
             widgets.row.display = False
         self.query_one("#config-editor-form", Vertical).display = False
 
@@ -799,6 +954,7 @@ class ConfigEditorScreen(Screen[None]):
 
     def _populate_document_body(self, document: ConfigEditorDocument) -> None:
         entries = document.commands or [ConfigCommandDraft()]
+        document.groups = self._merged_document_groups(document)
         self._ensure_command_rows(len(entries))
         self._active_command_row_ids = self._command_row_ids[: len(entries)]
         self.query_one("#config-editor-form", Vertical).display = True
@@ -810,10 +966,19 @@ class ConfigEditorScreen(Screen[None]):
                 entry = entries[index]
                 self._set_editor_input_value(widgets.label_input, entry.label)
                 self._set_editor_input_value(widgets.value_input, entry.value)
+                group = entry.group.strip()
+                self._set_group_select_options(
+                    widgets.group_select,
+                    document.groups,
+                    group if group else _CONFIG_GROUP_NONE,
+                )
+                widgets.color_select.value = self._normalize_command_color(entry.color)
                 widgets.row.display = True
                 continue
             self._set_editor_input_value(widgets.label_input, "")
             self._set_editor_input_value(widgets.value_input, "")
+            self._set_group_select_options(widgets.group_select, document.groups, _CONFIG_GROUP_NONE)
+            widgets.color_select.value = _DEFAULT_COMMAND_COLOR
             widgets.row.display = False
 
         self.query_one("#config-save", Button).disabled = False
@@ -833,7 +998,7 @@ class ConfigEditorScreen(Screen[None]):
         self._command_row_counter += 1
         row_id = self._command_row_counter
         label_input = Input(
-            placeholder="button label or nested path",
+            placeholder="button label",
             id=f"config-command-label-{row_id}",
             classes="config-command-input config-command-label-input",
         )
@@ -841,6 +1006,20 @@ class ConfigEditorScreen(Screen[None]):
             placeholder="string sent over the connection",
             id=f"config-command-value-{row_id}",
             classes="config-command-input config-command-value-input",
+        )
+        group_select = Select(
+            self._group_select_options([]),
+            value=_CONFIG_GROUP_NONE,
+            allow_blank=False,
+            id=f"config-command-group-{row_id}",
+            classes="config-command-group-select",
+        )
+        color_select = Select(
+            _COMMAND_COLOR_OPTIONS,
+            value=_DEFAULT_COMMAND_COLOR,
+            allow_blank=False,
+            id=f"config-command-color-{row_id}",
+            classes="config-command-color-select",
         )
         delete_button = Button(
             " X ",
@@ -853,6 +1032,8 @@ class ConfigEditorScreen(Screen[None]):
             label_input,
             Static("STRING", classes="config-input-label"),
             value_input,
+            group_select,
+            color_select,
             delete_button,
             id=f"config-command-row-{row_id}",
             classes="config-command-row",
@@ -863,9 +1044,85 @@ class ConfigEditorScreen(Screen[None]):
             row=row,
             label_input=label_input,
             value_input=value_input,
+            group_select=group_select,
+            color_select=color_select,
             delete_button=delete_button,
         )
         container.mount(row)
+
+    def _group_select_options(self, groups: Sequence[str]) -> list[tuple[str, str]]:
+        options = [("None", _CONFIG_GROUP_NONE), ("New...", _CONFIG_GROUP_NEW)]
+        options.extend((group, group) for group in groups if group.strip())
+        return options
+
+    def _set_group_select_options(self, select: Select, groups: Sequence[str], value: str) -> None:
+        options = self._group_select_options(groups)
+        try:
+            select.set_options(options)
+        except NoMatches:
+            # Newly-mounted Select widgets compose their overlay on the next refresh.
+            select._setup_variables_for_options(options)
+        select.value = value if value in {option_value for _label, option_value in options} else _CONFIG_GROUP_NONE
+
+    def _normalize_command_group(self, group: object) -> str:
+        value = str(group or "").strip()
+        if value in {"", _CONFIG_GROUP_NONE, _CONFIG_GROUP_NEW}:
+            return ""
+        return value
+
+    def _merge_groups(self, *group_lists: Sequence[str]) -> list[str]:
+        groups: list[str] = []
+        for group_list in group_lists:
+            for group in group_list:
+                normalized = self._normalize_command_group(group)
+                if normalized and normalized not in groups:
+                    groups.append(normalized)
+        return groups
+
+    def _merged_document_groups(self, document: ConfigEditorDocument) -> list[str]:
+        return self._merge_groups(document.groups, self._groups_from_entries(document.commands))
+
+    def _restore_group_select(self, row_id: int) -> None:
+        widgets = self._command_row_widgets.get(row_id)
+        if widgets is None:
+            return
+        previous_group = ""
+        document = self._document_drafts.get(self._active_document_key or "")
+        if document is not None and row_id in self._active_command_row_ids:
+            index = self._active_command_row_ids.index(row_id)
+            if index < len(document.commands):
+                previous_group = document.commands[index].group
+        self._rendering_form = True
+        widgets.group_select.value = previous_group.strip() or _CONFIG_GROUP_NONE
+        self._rendering_form = False
+
+    def _open_group_screen(self, row_id: int) -> None:
+        document = self._document_from_form()
+        if document is None:
+            return
+        groups = self._merged_document_groups(document)
+        self.app.push_screen(
+            ConfigGroupScreen(groups),
+            callback=lambda group: self._handle_group_screen_result(row_id, group),
+        )
+
+    def _handle_group_screen_result(self, row_id: int, group: str | None) -> None:
+        if not group:
+            return
+        document = self._document_from_form()
+        if document is None or row_id not in self._active_command_row_ids:
+            return
+        normalized_group = self._normalize_command_group(group)
+        if not normalized_group:
+            return
+        index = self._active_command_row_ids.index(row_id)
+        if index >= len(document.commands):
+            return
+        document.groups = self._merge_groups(document.groups, [normalized_group])
+        document.commands[index].group = normalized_group
+        if self._active_document_key is not None:
+            self._document_drafts[self._active_document_key] = document
+        self._render_document(document, focus_target=self._command_focus_selector(index))
 
     def _add_command_row(self) -> None:
         document = self._document_from_form()
@@ -929,12 +1186,21 @@ class ConfigEditorScreen(Screen[None]):
                 ConfigCommandDraft(
                     label=widgets.label_input.value,
                     value=widgets.value_input.value,
+                    group=self._normalize_command_group(widgets.group_select.value),
+                    color=self._normalize_command_color(widgets.color_select.value),
                 )
             )
+
+        groups = self._groups_from_entries(commands)
+        if self._active_document_key is not None:
+            stored = self._document_drafts.get(self._active_document_key)
+            if stored is not None:
+                groups = self._merge_groups(groups, stored.groups)
 
         return ConfigEditorDocument(
             name=name_input.value,
             commands=commands,
+            groups=groups,
             path=self.selected_path,
         )
 
@@ -984,14 +1250,14 @@ class ConfigEditorScreen(Screen[None]):
                 errors.append(f"Command row {index} needs both LABEL and STRING.")
                 continue
 
-            parts = [part.strip() for part in label.split("/") if part.strip()]
-            if not parts:
-                errors.append(f"Command row {index} needs a valid LABEL.")
-                continue
+            group = entry.group.strip()
+            parts = [label]
+            if group:
+                parts = [part.strip() for part in group.split("/") if part.strip()] + parts
 
             joined_label = _CONFIG_COMMAND_SEPARATOR.join(parts)
             try:
-                self._insert_command_value(commands, parts, value, joined_label)
+                self._insert_command_value(commands, parts, value, joined_label, entry.color)
             except ValueError as exc:
                 errors.append(f"Command row {index}: {exc}")
 
@@ -1006,6 +1272,7 @@ class ConfigEditorScreen(Screen[None]):
         parts: list[str],
         value: str,
         display_path: str,
+        color: str,
     ) -> None:
         current = commands
         for part in parts[:-1]:
@@ -1023,7 +1290,24 @@ class ConfigEditorScreen(Screen[None]):
             raise ValueError(f"'{display_path}' already exists as a command group.")
         if existing_leaf is not None:
             raise ValueError(f"Duplicate LABEL '{display_path}'.")
-        current[leaf] = value
+        normalized_color = self._normalize_command_color(color)
+        current[leaf] = (
+            value
+            if normalized_color == _DEFAULT_COMMAND_COLOR
+            else {
+                _COMMAND_VALUE_KEY: value,
+                _COMMAND_COLOR_KEY: normalized_color,
+            }
+        )
+
+    def _is_command_definition(self, value: dict[str, object]) -> bool:
+        return _COMMAND_VALUE_KEY in value
+
+    def _normalize_command_color(self, color: object) -> str:
+        value = str(color or _DEFAULT_COMMAND_COLOR).strip()
+        if value == "primary":
+            return "blue"
+        return value if value in _COMMAND_COLOR_VALUES else _DEFAULT_COMMAND_COLOR
 
     def _save_active_document(self) -> None:
         if self.app.current_user is None:
@@ -1075,10 +1359,10 @@ class SerialHubApp(App[None]):
     SUB_TITLE = f"v{__version__}"
     WORKSPACE_PLACEHOLDER_ID = "workspace-empty"
     BINDINGS = [
-        Binding("r", "refresh_devices", "Refresh Devices"),
-        Binding("m", "focus_message_input", "Message"),
-        Binding("d", "toggle_connect_disconnect", "Dis/Connect"),
-        Binding("l", "toggle_logging_shortcut", "Logging"),
+        Binding("ctrl+r", "refresh_devices", "Refresh Devices"),
+        Binding("ctrl+m", "focus_message_input", "Message"),
+        Binding("ctrl+d", "toggle_connect_disconnect", "Dis/Connect"),
+        Binding("ctrl+l", "toggle_logging_shortcut", "Save Log"),
         Binding("ctrl+t", "toggle_theme", "Theme"),
         Binding("ctrl+c", "quit", "Quit"),
         Binding("ctrl+q", "logout", "Logout", priority=True),
@@ -1120,7 +1404,7 @@ class SerialHubApp(App[None]):
         self._command_buttons: dict[str, CommandButtonSpec] = {}
         self._refreshing_command_configs = False
         self._refreshing_tcp_favorites = False
-        self._tcp_favorites: dict[str, tuple[str, int]] = {}
+        self._tcp_favorites: dict[str, tuple[str, int, str]] = {}
         self._input_history_states = {
             history_id: InputHistoryState()
             for history_id in _INPUT_HISTORY_SELECTORS
@@ -1207,7 +1491,6 @@ class SerialHubApp(App[None]):
                             value="8",
                             allow_blank=False,
                         )
-                        yield Checkbox("Start Logging", value=False, id="auto-log-checkbox")
                         yield Static("Select a port to connect.", id="device-meta", classes="hint")
 
                     with TabPane("TCP/IP", id="connection-tcp"):
@@ -1225,6 +1508,10 @@ class SerialHubApp(App[None]):
                             placeholder="TCP Port",
                             id="port-input",
                             history_id=INPUT_HISTORY_TCP_PORT,
+                        )
+                        yield Input(
+                            placeholder="Connection Label",
+                            id="tcp-label-input",
                         )
                         yield Button("Clear", id="clear-tcp-inputs")
                         yield Button("Add to Favorites", id="tcp-favorites-btn")
@@ -1321,8 +1608,9 @@ class SerialHubApp(App[None]):
 
                 with Horizontal(id="function-buttons-row"):
                     yield Checkbox("Timestamps", value=True, id="timestamp-checkbox")
+                    yield Checkbox("Chevrons", value=True, id="chevron-checkbox")
                     yield Input(placeholder=self._log_path_placeholder(), id="log-filepath")
-                    yield Button("Start Logging", id="toggle-logging")
+                    yield Button("Save Log", id="toggle-logging")
 
                     yield Button("Copy Workspace", id="copy-workspace-btn", variant="default", disabled=True)
 
@@ -1336,13 +1624,12 @@ class SerialHubApp(App[None]):
                     yield Button("Editor", id="config-editor-btn", variant="warning")
                     yield Button("Settings", id="user-settings-btn", variant="default")
                 
-                yield Select([], id="command-config-select", prompt="Select command config", allow_blank=True)
-                # yield Static(
-                #     "Sign in to load your command config files.",
-                #     id="command-config-hint",
-                #     classes="hint",
-                # )
-                yield VerticalScroll(id="command-buttons-scroll")
+                with TabbedContent(initial="command-functions-tab", id="command-panel-tabs"):
+                    with TabPane("Functions", id="command-functions-tab"):
+                        yield Select([], id="command-config-select", prompt="Select command config", allow_blank=True)
+                        yield VerticalScroll(id="command-buttons-scroll")
+                    with TabPane("History", id="command-history-tab"):
+                        yield ListView(id="command-history-list", classes="command-history-list")
 
         with Horizontal(id="footer-row"):
             yield Footer(id="app-footer")
@@ -1391,7 +1678,7 @@ class SerialHubApp(App[None]):
         self._connect_selected_device()
 
     def action_toggle_logging_shortcut(self) -> None:
-        self._toggle_logging_for_active_session()
+        self._save_active_workspace_log()
 
     def action_open_config_editor(self) -> None:
         if isinstance(self.screen, UserLoginScreen):
@@ -1514,7 +1801,7 @@ class SerialHubApp(App[None]):
             return
 
         if button_id == "toggle-logging":
-            self._toggle_logging_for_active_session()
+            self._save_active_workspace_log()
             return
 
         if button_id == "copy-workspace-btn":
@@ -1540,7 +1827,7 @@ class SerialHubApp(App[None]):
         if event.input.id == "tx-input":
             self._send_current_input()
             return
-        if event.input.id in {"ip-input", "port-input"}:
+        if event.input.id in {"ip-input", "port-input", "tcp-label-input"}:
             self._connect_selected_device()
 
     def on_input_changed(self, event: Input.Changed) -> None:
@@ -1589,19 +1876,35 @@ class SerialHubApp(App[None]):
             favorite = self._tcp_favorites.get(str(event.value))
             if favorite is None:
                 return
-            host, port = favorite
+            host, port, label = favorite
             self._set_history_input_value(INPUT_HISTORY_TCP_IP, host)
             self._set_history_input_value(INPUT_HISTORY_TCP_PORT, str(port))
+            label_input = self._query_ui("#tcp-label-input", Input)
+            label_input.value = label
+            label_input.cursor_position = len(label)
 
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
-        if event.checkbox.id != "timestamp-checkbox":
+        if event.checkbox.id not in {"timestamp-checkbox", "chevron-checkbox"}:
             return
 
         enabled = event.value
-        for session in self.sessions.values():
-            session.timestamps_enabled = enabled
+        if event.checkbox.id == "timestamp-checkbox":
+            for session in self.sessions.values():
+                session.timestamps_enabled = enabled
+        else:
+            for session in self.sessions.values():
+                session.chevrons_enabled = enabled
         for device_id in self.sessions:
             self._render_workspace_session(device_id, preserve_scroll=True)
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        if event.list_view.id != "command-history-list":
+            return
+        value = getattr(event.item, "command_value", "")
+        if not isinstance(value, str) or not value:
+            return
+        self._set_tx_input_value(value)
+        self._query_ui("#tx-input", Input).focus()
 
     def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
         if event.tabbed_content.id == "workspace-tabs":
@@ -1721,6 +2024,7 @@ class SerialHubApp(App[None]):
         self._apply_ui_visibility_preferences()
         self._refresh_tcp_favorites()
         self._refresh_command_configs()
+        self._refresh_command_history_list()
 
     def _show_activity_widget_enabled(self) -> bool:
         if not self.current_user:
@@ -1749,11 +2053,13 @@ class SerialHubApp(App[None]):
                 return
 
             options: list[tuple[str, str]] = []
-            mapping: dict[str, tuple[str, int]] = {}
+            mapping: dict[str, tuple[str, int, str]] = {}
             for favorite in self.current_user.tcp_favorites:
                 key = build_tcp_device_id(favorite.host, favorite.port)
-                options.append((key, key))
-                mapping[key] = (favorite.host, favorite.port)
+                label = favorite.label.strip()
+                display = f"{label} ({key})" if label else key
+                options.append((display, key))
+                mapping[key] = (favorite.host, favorite.port, label)
 
             self._tcp_favorites = mapping
             select.set_options(options)
@@ -1859,6 +2165,30 @@ class SerialHubApp(App[None]):
 
         scroll.mount(Static("This command config does not define any commands.", classes="hint"))
 
+    def _refresh_command_history_list(self) -> None:
+        try:
+            history_list = self._query_ui("#command-history-list", ListView)
+        except NoMatches:
+            return
+
+        for child in list(history_list.children):
+            child.remove()
+        history = list(reversed(self._load_message_history()))
+        if not history:
+            history_list.mount(ListItem(Static("No command history yet.", classes="hint")))
+            history_list.disabled = True
+            return
+
+        history_list.disabled = False
+        seen: set[str] = set()
+        for value in history:
+            if value in seen:
+                continue
+            seen.add(value)
+            item = ListItem(Static(value, classes="command-history-item"))
+            setattr(item, "command_value", value)
+            history_list.mount(item)
+
     def _build_command_widgets(
         self,
         commands: dict[str, object],
@@ -1870,6 +2200,11 @@ class SerialHubApp(App[None]):
         pending_buttons: list[Widget] = []
         for name, value in commands.items():
             if isinstance(value, dict):
+                if self._is_command_definition(value):
+                    payload = str(value.get(_COMMAND_VALUE_KEY, ""))
+                    color = self._normalize_command_color(value.get(_COMMAND_COLOR_KEY))
+                    pending_buttons.append(self._make_command_button(name, path, payload, color, depth))
+                    continue
                 widgets.extend(self._build_command_rows(pending_buttons))
                 pending_buttons = []
                 nested_widgets = self._build_command_widgets(value, path=path + (name,), depth=depth + 1)
@@ -1883,22 +2218,45 @@ class SerialHubApp(App[None]):
                     )
                 continue
             
-            self._command_button_counter += 1
-            button_id = f"command-button-{self._command_button_counter}"
-            self._command_buttons[button_id] = CommandButtonSpec(
-                label=" / ".join(path + (name,)),
-                payload=str(value),
-            )
             pending_buttons.append(
-                Button(
-                    name,
-                    id=button_id,
-                    classes=f"command-button command-depth-{min(depth, 3)}",
-                    variant="primary",
-                )
+                self._make_command_button(name, path, str(value), _DEFAULT_COMMAND_COLOR, depth)
             )
         widgets.extend(self._build_command_rows(pending_buttons))
         return widgets
+
+    def _make_command_button(
+        self,
+        name: str,
+        path: tuple[str, ...],
+        payload: str,
+        color: str,
+        depth: int,
+    ) -> Button:
+        self._command_button_counter += 1
+        button_id = f"command-button-{self._command_button_counter}"
+        normalized_color = self._normalize_command_color(color)
+        self._command_buttons[button_id] = CommandButtonSpec(
+            label=" / ".join(path + (name,)),
+            payload=payload,
+            color=normalized_color,
+        )
+        variant = "default" if normalized_color == "blue" else normalized_color
+        color_class = f"command-color-{normalized_color}"
+        return Button(
+            name,
+            id=button_id,
+            classes=f"command-button command-depth-{min(depth, 3)} {color_class}",
+            variant=variant,
+        )
+
+    def _is_command_definition(self, value: dict[str, object]) -> bool:
+        return _COMMAND_VALUE_KEY in value
+
+    def _normalize_command_color(self, color: object) -> str:
+        value = str(color or _DEFAULT_COMMAND_COLOR).strip()
+        if value == "primary":
+            return "blue"
+        return value if value in _COMMAND_COLOR_VALUES else _DEFAULT_COMMAND_COLOR
 
     def _build_command_rows(self, buttons: list[Widget]) -> list[Widget]:
         rows: list[Widget] = []
@@ -1983,14 +2341,19 @@ class SerialHubApp(App[None]):
         config.validate()
         return config
 
+    def _tcp_label_from_inputs(self) -> str:
+        return self._query_ui("#tcp-label-input", Input).value.strip()
+
     def _upsert_session(
         self,
         *,
         device_id: str,
         transport: DeviceTransport,
         config: SerialConfig | TcpConfig,
+        label: str = "",
     ) -> DeviceSession:
         timestamps_enabled = self._query_ui("#timestamp-checkbox", Checkbox).value
+        chevrons_enabled = self._query_ui("#chevron-checkbox", Checkbox).value
         session = self.sessions.get(device_id)
         if session is None:
             session = DeviceSession(
@@ -2000,6 +2363,8 @@ class SerialHubApp(App[None]):
                 config=config,
                 logger=None,
                 timestamps_enabled=timestamps_enabled,
+                chevrons_enabled=chevrons_enabled,
+                label=label,
             )
             self.sessions[device_id] = session
             return session
@@ -2008,6 +2373,8 @@ class SerialHubApp(App[None]):
         session.transport = transport
         session.config = config
         session.timestamps_enabled = timestamps_enabled
+        session.chevrons_enabled = chevrons_enabled
+        session.label = label
         return session
 
     def _connect_selected_device(self) -> None:
@@ -2043,9 +2410,6 @@ class SerialHubApp(App[None]):
         self._ensure_workspace_for_device(self.selected_port)
         self._set_active_workspace(self.selected_port)
 
-        if self._query_ui("#auto-log-checkbox", Checkbox).value:
-            self._start_logging_for_session(session, notify=False)
-
         self._refresh_workspace_state(self.selected_port)
         self.notify(f"Connected to {self.selected_port}")
 
@@ -2057,7 +2421,8 @@ class SerialHubApp(App[None]):
             return
 
         device_id = config.device_id
-        session = self._upsert_session(device_id=device_id, transport="tcp", config=config)
+        label = self._tcp_label_from_inputs()
+        session = self._upsert_session(device_id=device_id, transport="tcp", config=config, label=label)
 
         try:
             self.device_manager.connect_tcp(config, self._on_serial_event)
@@ -2073,9 +2438,6 @@ class SerialHubApp(App[None]):
         self._ensure_workspace_for_device(device_id)
         self._set_active_workspace(device_id)
 
-        if self._query_ui("#auto-log-checkbox", Checkbox).value:
-            self._start_logging_for_session(session, notify=False)
-
         self._refresh_workspace_state(device_id)
         self.notify(f"Connected to {device_id}")
 
@@ -2084,6 +2446,9 @@ class SerialHubApp(App[None]):
         self._reset_input_history_state(INPUT_HISTORY_TCP_PORT)
         self._set_history_input_value(INPUT_HISTORY_TCP_IP, "")
         self._set_history_input_value(INPUT_HISTORY_TCP_PORT, "")
+        label_input = self._query_ui("#tcp-label-input", Input)
+        label_input.value = ""
+        label_input.cursor_position = 0
         if focus:
             self._query_ui("#ip-input", Input).focus()
 
@@ -2196,6 +2561,7 @@ class SerialHubApp(App[None]):
         self._send_payload(device_id, payload)
         self._save_to_message_history(raw_input)
         self._reset_message_history_state()
+        self._refresh_command_history_list()
         self._set_tx_input_value("")
 
     def _send_user_defined_command(self, command: CommandButtonSpec) -> None:
@@ -2212,6 +2578,7 @@ class SerialHubApp(App[None]):
         self._send_payload(device_id, payload)
         self._save_to_message_history(command.payload)
         self._invalidate_input_history_cache(INPUT_HISTORY_MESSAGE)
+        self._refresh_command_history_list()
 
     def _send_payload(self, device_id: str, payload: bytes) -> None:
         conn = self.device_manager.get_connection(device_id)
@@ -2241,7 +2608,8 @@ class SerialHubApp(App[None]):
             self.notify(f"Invalid TCP favorite: {exc}", severity="error")
             return
 
-        added = upsert_tcp_favorite(self.current_user, config.host, config.port)
+        label = self._query_ui("#tcp-label-input", Input).value.strip()
+        added = upsert_tcp_favorite(self.current_user, config.host, config.port, label)
         self._refresh_tcp_favorites(selected_key=config.device_id)
         if added:
             self.notify(f"Saved {config.device_id} to favorites.")
@@ -2375,40 +2743,47 @@ class SerialHubApp(App[None]):
     def _navigate_message_history(self, direction: int) -> None:
         self._navigate_input_history(INPUT_HISTORY_MESSAGE, direction)
 
-    def _toggle_logging_for_active_session(self) -> None:
+    def _save_active_workspace_log(self) -> None:
         session = self._get_active_session()
         if not session:
             self.notify("No active workspace selected.", severity="warning")
             return
 
-        if session.logger and session.logger.is_running:
-            session.logger.stop()
-            self.notify(f"Logging stopped for {session.device_id}")
-            self._refresh_workspace_state(session.device_id)
+        self._sync_session_output_format_from_widgets(session)
+        workspace_text = self._active_workspace_text(session)
+        if not workspace_text:
+            self.notify("Active workspace has no data to save.", severity="warning")
             return
 
-        if not self._is_device_connected(session.device_id):
-            self.notify("Connect the active device before starting logging.", severity="warning")
+        try:
+            log_path = self._resolve_log_path(session.device_id)
+        except ValueError as exc:
+            self.notify(str(exc), severity="error")
             return
 
-        self._start_logging_for_session(session, notify=True)
+        try:
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            log_path.write_text(workspace_text + "\n", encoding="utf-8")
+        except OSError as exc:
+            self.notify(f"Save failed: {exc}", severity="error")
+            return
+
+        self.notify(f"Saved log for {session.device_id}: {log_path.name}")
         self._refresh_workspace_state(session.device_id)
+
+    def _sync_session_output_format_from_widgets(self, session: DeviceSession) -> None:
+        session.timestamps_enabled = self._query_ui("#timestamp-checkbox", Checkbox).value
+        session.chevrons_enabled = self._query_ui("#chevron-checkbox", Checkbox).value
 
     def _refresh_logging_button(self) -> None:
         button = self._query_ui("#toggle-logging", Button)
         session = self._get_active_session()
+        button.label = "Save Log"
         if not session:
-            button.label = "Start Logging"
             button.disabled = True
             return
 
-        if session.logger and session.logger.is_running:
-            button.label = "Stop Logging"
-            button.disabled = False
-            return
-
-        button.label = "Start Logging"
-        button.disabled = not self._is_device_connected(session.device_id)
+        button.disabled = not bool(session.raw_events)
 
     def _on_serial_event(self, event: SerialEvent) -> None:
         if self._shutting_down:
@@ -2428,9 +2803,6 @@ class SerialHubApp(App[None]):
 
         merged_into_previous = session.add_raw_event(event)
         session.workspace_datastream.record_event(event)
-
-        if session.logger and session.logger.is_running:
-            session.logger.log_event(event)
 
         prefix = self._format_prefix(session, event.timestamp)
         if event.direction in {"RX", "TX"} and event.payload is not None:
@@ -2456,9 +2828,19 @@ class SerialHubApp(App[None]):
             return ""
         return f"[{timestamp.strftime('%H:%M:%S.%f')[:-3]}] "
 
+    def _format_direction_marker(self, session: DeviceSession, direction: str) -> str:
+        if not session.chevrons_enabled:
+            return ""
+        if direction == "RX":
+            return "<< "
+        if direction == "TX":
+            return ">> "
+        return ""
+
     def _render_raw_event_lines(self, session: DeviceSession, event: SerialEvent) -> list[str]:
         prefix = self._format_prefix(session, event.timestamp)
         if event.direction in {"RX", "TX"} and event.payload is not None:
+            prefix = f"{prefix}{self._format_direction_marker(session, event.direction)}"
             formatted = event.payload.decode("utf-8", errors="replace")
             lines = formatted.replace("\r\n", "\n").replace("\r", "\n").split("\n")
             return [f"{prefix}{line}" for line in lines if line or len(lines) == 1]
@@ -2466,22 +2848,6 @@ class SerialHubApp(App[None]):
 
     def _is_tx_hex_mode(self) -> bool:
         return self._query_ui("#tx-hex-checkbox", Checkbox).value
-
-    def _start_logging_for_session(self, session: DeviceSession, notify: bool = True) -> bool:
-        if session.logger and session.logger.is_running:
-            return True
-
-        try:
-            log_path = self._resolve_log_path(session.device_id)
-        except ValueError as exc:
-            self.notify(str(exc), severity="error")
-            return False
-
-        session.logger = SessionLogger(log_path)
-        session.logger.start()
-        if notify:
-            self.notify(f"Logging started for {session.device_id}: {session.logger.log_path.name}")
-        return True
 
     def _normalize_log_destination_setting(self, configured_path: str) -> str:
         normalized = configured_path.strip()
@@ -2696,7 +3062,9 @@ class SerialHubApp(App[None]):
 
     def _workspace_tab_label(self, device_id: str) -> str:
         state = "live" if self._is_device_connected(device_id) else "saved"
-        return f"{device_id} [{state}]"
+        session = self.sessions.get(device_id)
+        display_name = session.label if session and session.label else device_id
+        return f"{display_name} [{state}]"
 
     def _set_active_workspace(self, device_id: str | None) -> None:
         if not device_id:

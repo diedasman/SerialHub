@@ -8,8 +8,9 @@ from serialhub.core.models import SerialEvent, can_coalesce_serial_payload
 
 
 class SessionLogger:
-    def __init__(self, log_path: Path) -> None:
+    def __init__(self, log_path: Path, *, chevrons_enabled: bool = False) -> None:
         self.log_path = log_path
+        self.chevrons_enabled = chevrons_enabled
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
 
         self._file = None
@@ -81,9 +82,10 @@ class SessionLogger:
     def _format_event_line(self, event: SerialEvent) -> str:
         if event.direction in {"RX", "TX"}:
             payload_text = (event.payload or b"").decode("utf-8", errors="replace").rstrip("\r\n")
+            direction_marker = self._direction_marker(event.direction)
             return (
                 f"{event.timestamp.isoformat(timespec='milliseconds')}"
-                f" {payload_text}"
+                f" {direction_marker}{payload_text}"
                 # f" | {event.device_id} | {event.direction} | HEX={payload_hex} | ASCII={payload_ascii}"
             )
         return (
@@ -100,3 +102,12 @@ class SessionLogger:
             text=event.text,
             timestamp=event.timestamp,
         )
+
+    def _direction_marker(self, direction: str) -> str:
+        if not self.chevrons_enabled:
+            return ""
+        if direction == "RX":
+            return "<< "
+        if direction == "TX":
+            return ">> "
+        return ""
