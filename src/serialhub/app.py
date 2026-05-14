@@ -1062,7 +1062,8 @@ class ConfigEditorScreen(Screen[None]):
         except NoMatches:
             # Newly-mounted Select widgets compose their overlay on the next refresh.
             select._setup_variables_for_options(options)
-        select.value = value if value in {option_value for _label, option_value in options} else _CONFIG_GROUP_NONE
+        option_values = {option_value for _label, option_value in options}
+        select.value = value if value in option_values else _CONFIG_GROUP_NONE
 
     def _normalize_command_group(self, group: object) -> str:
         value = str(group or "").strip()
@@ -1626,7 +1627,12 @@ class SerialHubApp(App[None]):
                 
                 with TabbedContent(initial="command-functions-tab", id="command-panel-tabs"):
                     with TabPane("Functions", id="command-functions-tab"):
-                        yield Select([], id="command-config-select", prompt="Select command config", allow_blank=True)
+                        yield Select(
+                            [],
+                            id="command-config-select",
+                            prompt="Select command config",
+                            allow_blank=True,
+                        )
                         yield VerticalScroll(id="command-buttons-scroll")
                     with TabPane("History", id="command-history-tab"):
                         yield ListView(id="command-history-list", classes="command-history-list")
@@ -2395,7 +2401,7 @@ class SerialHubApp(App[None]):
             self.notify(f"Invalid serial config: {exc}", severity="error")
             return
 
-        session = self._upsert_session(
+        self._upsert_session(
             device_id=self.selected_port,
             transport="serial",
             config=config,
@@ -2422,7 +2428,7 @@ class SerialHubApp(App[None]):
 
         device_id = config.device_id
         label = self._tcp_label_from_inputs()
-        session = self._upsert_session(device_id=device_id, transport="tcp", config=config, label=label)
+        self._upsert_session(device_id=device_id, transport="tcp", config=config, label=label)
 
         try:
             self.device_manager.connect_tcp(config, self._on_serial_event)
