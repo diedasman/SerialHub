@@ -22,6 +22,7 @@ from textual.widgets import (  # type: ignore
     Input,
     ListItem,
     ListView,
+    MarkdownViewer,
     RichLog,
     Rule,
     Select,
@@ -125,6 +126,20 @@ def load_app_css() -> str:
         return files("serialhub").joinpath("serialhub.tcss").read_text(encoding="utf-8")
     except (FileNotFoundError, ModuleNotFoundError, OSError):
         return ""
+
+
+def load_manual_markdown(filename: str = "connection.md") -> str:
+    """Load a packaged SerialHub manual markdown document."""
+    try:
+        return (
+            files("serialhub")
+            .joinpath("assets")
+            .joinpath("manual")
+            .joinpath(filename)
+            .read_text(encoding="utf-8")
+        )
+    except (FileNotFoundError, ModuleNotFoundError, OSError):
+        return f"# SerialHub Manual\n\nThe packaged manual document `{filename}` could not be loaded."
 
 
 @dataclass(slots=True)
@@ -678,6 +693,46 @@ class ConfigGroupScreen(ModalScreen[str | None]):
             self.app.notify("Enter a group name before saving.", severity="warning")
             return
         self.dismiss(group)
+
+
+class ManualScreen(Screen[None]):
+    BINDINGS = [
+        Binding("escape", "close_manual", "Close Manual"),
+    ]
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="manual-screen", classes="panel"):
+            with TabbedContent(initial="manual-connection-tab", id="manual-tabs"):
+                with TabPane("Connection", id="manual-connection-tab"):
+                    yield MarkdownViewer(
+                        load_manual_markdown("connection.md"),
+                        show_table_of_contents=False,
+                        open_links=False,
+                        id="manual-connection-viewer",
+                    )
+                with TabPane("Monitor", id="manual-monitor-tab"):
+                    yield MarkdownViewer(
+                        load_manual_markdown("monitor.md"),
+                        show_table_of_contents=False,
+                        open_links=False,
+                        id="manual-monitor-viewer",
+                    )
+                with TabPane("Functions", id="manual-functions-tab"):
+                    yield MarkdownViewer(
+                        load_manual_markdown("functions.md"),
+                        show_table_of_contents=False,
+                        open_links=False,
+                        id="manual-functions-viewer",
+                    )
+
+        yield Footer(id="manual-footer")
+
+    def on_mount(self) -> None:
+        self.query_one("#manual-screen", Vertical).border_title = " SERIALHUB MANUAL "
+        self.query_one("#manual-connection-viewer", MarkdownViewer).focus()
+
+    def action_close_manual(self) -> None:
+        self.app.pop_screen()
 
 
 class ConfigEditorScreen(Screen[None]):
@@ -1496,7 +1551,7 @@ class SerialHubApp(App[None]):
 
                     with TabPane("TCP/IP", id="connection-tcp"):
                         yield Static(
-                            "Enter a device IP address and TCP port to open a raw socket session.",
+                            "Enter a device IP address and TCP port to open a session.",
                             id="tcp-meta",
                             classes="hint",
                         )
@@ -1623,6 +1678,7 @@ class SerialHubApp(App[None]):
                 with Horizontal(id="right-panel-header"):
                     # yield Static("", id="right-panel-spacer")
                     yield Button("Editor", id="config-editor-btn", variant="warning")
+                    yield Button("Manual", id="manual-btn", variant="primary")
                     yield Button("Settings", id="user-settings-btn", variant="default")
                 
                 with TabbedContent(initial="command-functions-tab", id="command-panel-tabs"):
@@ -1696,6 +1752,13 @@ class SerialHubApp(App[None]):
             return
         self.push_screen(ConfigEditorScreen())
 
+    def action_open_manual(self) -> None:
+        if isinstance(self.screen, UserLoginScreen):
+            return
+        if isinstance(self.screen, ManualScreen):
+            return
+        self.push_screen(ManualScreen())
+
     def action_open_user_settings(self) -> None:
         if isinstance(self.screen, UserLoginScreen):
             return
@@ -1722,6 +1785,8 @@ class SerialHubApp(App[None]):
             return
 
         if isinstance(self.screen, ConfigEditorScreen):
+            self.pop_screen()
+        if isinstance(self.screen, ManualScreen):
             self.pop_screen()
         if isinstance(self.screen, UserSettingsScreen):
             self.pop_screen()
@@ -1816,6 +1881,10 @@ class SerialHubApp(App[None]):
 
         if button_id == "config-editor-btn":
             self.action_open_config_editor()
+            return
+
+        if button_id == "manual-btn":
+            self.action_open_manual()
             return
 
         if button_id == "user-settings-btn":

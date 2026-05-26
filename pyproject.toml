@@ -58,7 +58,7 @@ version = {attr = "serialhub.__version__"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-serialhub = ["*.tcss", "assets/*.txt"]
+serialhub = ["*.tcss", "assets/*.txt", "assets/manual/*.md"]
 
 [tool.pytest.ini_options]
 addopts = "-q"

@@ -3,13 +3,14 @@ import json
 from types import SimpleNamespace
 
 from textual.css.query import NoMatches
-from textual.widgets import Button, Input, Select, Sparkline, Static, Switch, TabbedContent
+from textual.widgets import Button, Input, MarkdownViewer, Select, Sparkline, Static, Switch, TabbedContent
 
 from serialhub.app import (
     ConfigEditorScreen,
     ConfigGroupScreen,
     ConnectionStatusSwitch,
     DeleteConfigConfirmScreen,
+    ManualScreen,
     SerialHubApp,
     UserSettingsScreen,
     WorkspaceActivityIndicator,
@@ -178,6 +179,41 @@ def test_user_settings_button_opens_and_closes_screen(monkeypatch, tmp_path) -> 
             app.screen.action_close_settings()
             await pilot.pause()
             assert not isinstance(app.screen, UserSettingsScreen)
+
+    asyncio.run(scenario())
+
+
+def test_manual_button_opens_markdown_screen(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
+    profile = create_user_profile("alice")
+
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False, startup_user=profile)
+        app.device_manager = FakeDeviceManager()
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            app.query_one("#manual-btn", Button).press()
+            screen = await wait_for_screen(app, ManualScreen, pilot)
+            tabs = await wait_for_query(screen, "#manual-tabs", TabbedContent, pilot)
+            connection_viewer = await wait_for_query(
+                screen,
+                "#manual-connection-viewer",
+                MarkdownViewer,
+                pilot,
+            )
+            monitor_viewer = await wait_for_query(screen, "#manual-monitor-viewer", MarkdownViewer, pilot)
+            functions_viewer = await wait_for_query(screen, "#manual-functions-viewer", MarkdownViewer, pilot)
+
+            assert tabs.active == "manual-connection-tab"
+            assert isinstance(connection_viewer, MarkdownViewer)
+            assert isinstance(monitor_viewer, MarkdownViewer)
+            assert isinstance(functions_viewer, MarkdownViewer)
+
+            screen.action_close_manual()
+            await pilot.pause()
+            assert not isinstance(app.screen, ManualScreen)
 
     asyncio.run(scenario())
 

@@ -1,5 +1,5 @@
 from serialhub import __version__
-from serialhub.app import SerialHubApp, load_app_css, load_ascii_logo
+from serialhub.app import SerialHubApp, load_app_css, load_ascii_logo, load_manual_markdown
 
 
 def test_packaged_logo_is_available() -> None:
@@ -28,3 +28,25 @@ def test_packaged_css_is_available() -> None:
     assert css
     assert "Screen {" in css
     assert SerialHubApp.CSS == css
+
+
+def test_packaged_manual_is_available() -> None:
+    manual = load_manual_markdown("connection.md")
+
+    assert manual
+    assert "## Connection" in manual
+
+
+def test_packaged_monitor_manual_is_available() -> None:
+    manual = load_manual_markdown("monitor.md")
+
+    assert manual
+    assert "The **MONITOR** panel" in manual
+
+
+def test_packaged_functions_manual_is_available() -> None:
+    manual = load_manual_markdown("functions.md")
+
+    assert manual
+    assert "## User Functions" in manual
+    assert "Config Editor" in manual
