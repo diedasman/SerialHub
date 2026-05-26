@@ -71,6 +71,18 @@ async def wait_for_screen(app: SerialHubApp, screen_type, pilot, *, attempts: in
     return app.screen
 
 
+async def wait_for_config_group_form(
+    app: SerialHubApp,
+    pilot,
+    *,
+    attempts: int = 8,
+) -> tuple[ConfigGroupScreen, Input, Button]:
+    screen = await wait_for_screen(app, ConfigGroupScreen, pilot, attempts=attempts)
+    name_input = await wait_for_query(screen, "#config-group-name", Input, pilot, attempts=attempts)
+    save_button = await wait_for_query(screen, "#config-group-save", Button, pilot, attempts=attempts)
+    return screen, name_input, save_button
+
+
 async def wait_for_condition(condition, pilot, *, attempts: int = 8) -> None:
     for _ in range(attempts):
         if condition():
@@ -314,9 +326,8 @@ def test_config_editor_new_flow_adds_command_rows_and_saves_form_data(monkeypatc
             label_1.value = "DATE"
             value_1.value = "set date\\r\\n"
             app.screen.query_one("#config-command-group-1", Select).value = "__new__"
-            group_screen = await wait_for_screen(app, ConfigGroupScreen, pilot)
-            group_screen.query_one("#config-group-name", Input).value = "SET"
-            group_save = await wait_for_query(group_screen, "#config-group-save", Button, pilot)
+            _, group_name, group_save = await wait_for_config_group_form(app, pilot)
+            group_name.value = "SET"
             group_save.press()
             await pilot.pause()
             await wait_for_screen(app, ConfigEditorScreen, pilot)
@@ -329,9 +340,8 @@ def test_config_editor_new_flow_adds_command_rows_and_saves_form_data(monkeypatc
             label_2.value = "STATUS"
             value_2.value = "get status + 100% & ok\\r\\n"
             app.screen.query_one("#config-command-group-2", Select).value = "__new__"
-            group_screen = await wait_for_screen(app, ConfigGroupScreen, pilot)
-            group_screen.query_one("#config-group-name", Input).value = "GET"
-            group_save = await wait_for_query(group_screen, "#config-group-save", Button, pilot)
+            _, group_name, group_save = await wait_for_config_group_form(app, pilot)
+            group_name.value = "GET"
             group_save.press()
             await pilot.pause()
             await wait_for_screen(app, ConfigEditorScreen, pilot)
