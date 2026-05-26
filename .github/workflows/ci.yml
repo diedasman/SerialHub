@@ -88,10 +88,9 @@ jobs:
             "--distpath", "dist",
             "--add-data", "${cssPath};serialhub",
             "--add-data", "${assetsPath};serialhub/assets",
-            "--collect-all", "textual",
-            "--collect-all", "textual_serve",
+            "--collect-submodules", "textual.widgets",
+            "--hidden-import", "textual_serve.server",
             "--collect-submodules", "serial",
-            "--collect-data", "serialhub"
           )
           if (Test-Path $iconPath) {
             $pyInstallerArgs += @("--icon", $iconPath)

@@ -315,7 +315,8 @@ def test_config_editor_new_flow_adds_command_rows_and_saves_form_data(monkeypatc
             app.screen.query_one("#config-command-group-1", Select).value = "__new__"
             group_screen = await wait_for_screen(app, ConfigGroupScreen, pilot)
             group_screen.query_one("#config-group-name", Input).value = "SET"
-            group_screen.query_one("#config-group-save", Button).press()
+            group_save = await wait_for_query(group_screen, "#config-group-save", Button, pilot)
+            group_save.press()
             await pilot.pause()
             await wait_for_screen(app, ConfigEditorScreen, pilot)
 
@@ -329,7 +330,8 @@ def test_config_editor_new_flow_adds_command_rows_and_saves_form_data(monkeypatc
             app.screen.query_one("#config-command-group-2", Select).value = "__new__"
             group_screen = await wait_for_screen(app, ConfigGroupScreen, pilot)
             group_screen.query_one("#config-group-name", Input).value = "GET"
-            group_screen.query_one("#config-group-save", Button).press()
+            group_save = await wait_for_query(group_screen, "#config-group-save", Button, pilot)
+            group_save.press()
             await pilot.pause()
             await wait_for_screen(app, ConfigEditorScreen, pilot)
 
