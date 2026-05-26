@@ -206,6 +206,7 @@ def test_manual_button_opens_markdown_screen(monkeypatch, tmp_path) -> None:
             monitor_viewer = await wait_for_query(screen, "#manual-monitor-viewer", MarkdownViewer, pilot)
             functions_viewer = await wait_for_query(screen, "#manual-functions-viewer", MarkdownViewer, pilot)
 
+            await wait_for_condition(lambda: tabs.active == "manual-connection-tab", pilot)
             assert tabs.active == "manual-connection-tab"
             assert isinstance(connection_viewer, MarkdownViewer)
             assert isinstance(monitor_viewer, MarkdownViewer)
@@ -380,7 +381,9 @@ def test_config_editor_saves_command_button_color(monkeypatch, tmp_path) -> None
             app.screen.query_one("#config-name-input", Input).value = "colored"
             app.screen.query_one("#config-command-label-1", Input).value = "PING"
             app.screen.query_one("#config-command-value-1", Input).value = "ping\\r\\n"
-            app.screen.query_one("#config-command-color-1", Select).value = "success"
+            color_select = app.screen.query_one("#config-command-color-1", Select)
+            await wait_for_query(color_select, "#label", Static, pilot)
+            color_select.value = "success"
             await pilot.pause()
 
             app.screen.query_one("#config-save", Button).press()
