@@ -17,7 +17,7 @@ site_packages="$py_root/Lib/site-packages"
 exe_name="SerialHub-v${version}"
 icon_args=()
 if [[ -f "src/serialhub/assets/app.ico" ]]; then
-    icon_args=(--icon 'Z:\src\src\serialhub\assets\app.ico')
+    icon_args=(--icon 'Z:/src/src/serialhub/assets/app.ico')
 fi
 
 rm -rf "$py_root"
