@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [2.0] - 2026-05-31
+
+### Added
+
+- Added user macros with a Macros tab, run/edit actions, per-command delays, and editable macro JSON files.
+- Added generated macro command labels in the Command Builder so macro steps are indexed by row order.
+- Added local Windows executable release publishing from committed `dist/SerialHub-v*.exe` assets.
+
+### Changed
+
+- Updated the Command Builder layout with clearer row borders and improved Add Command focus behavior.
+- Updated macro command summaries and Macros tab styling for easier command scanning.
+- Switched release automation to publish locally built executables on pushed `v*` tags.
+
+### Fixed
+
+- Stabilized config-editor file focus when opening macro files from the Macros tab.
+- Added regression coverage for macro loading, editing, execution, command color handling, and Command Builder focus.
+
+---
+
 ## [1.9.2] - 2026-05-31
 
 ### Changed

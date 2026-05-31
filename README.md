@@ -36,16 +36,73 @@ SerialHub is a cross-platform serial and TCP terminal built with Textual. It run
 Windows executable builds are produced locally. Cloud CI does not build release binaries for this repo.
 
 - Build on Windows with `scripts\build_release.ps1`. The output is a single `.exe` named `SerialHub-v#`, where `#` is the release version.
-- On Linux, build the same Windows `.exe` with Docker using `./scripts/build_release_docker.sh 1.9.2`.
-- By default, the script uses the package version. Pass `-Version 1.2.3` to build a specific release version.
+- On Linux, build the same Windows `.exe` with Docker using `./scripts/build_release_docker.sh 2.0`.
+- By default, the script uses the package version. Pass `-Version 2.0` to build a specific release version.
 - Use `-InstallDependencies` when the local environment still needs PyInstaller installed.
 - Commit the release executable as `dist/SerialHub-v*.exe` before pushing a `v*` tag.
-- Tags matching `v*` publish the committed local executable to GitHub Releases when the matching file is present.
-- The local Windows and Docker build scripts embed `src/serialhub/assets/app.ico` in the Windows executable when the icon file is present.
+- Tags matching `v*` publish the committed local executable to GitHub Releases when the file is present.
+- To brand the Windows executable, place a Windows `.ico` file at `src/serialhub/assets/app.ico`; the local PyInstaller step will use it automatically when present.
 
 End users on Windows can download `SerialHub-v*.exe` from the GitHub release assets or from the repository `dist/` folder, then run the executable directly. No Python installation or source checkout is required for normal end-user use.
 
 For now, Linux usage is source-based rather than distributed as a packaged executable.
+
+## Development Setup
+
+Use a local virtual environment for development and testing.
+
+Windows PowerShell shortcut from the project root:
+
+```powershell
+. .\scripts\dev_setup.ps1
+```
+
+Manual setup:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e .[dev]
+```
+
+Linux manual setup:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e .[dev]
+```
+
+If you use VS Code, point it at the virtual-environment interpreter so imports resolve correctly.
+
+## Running From Source
+
+Terminal mode:
+
+```powershell
+python -m serialhub
+```
+
+Browser mode:
+
+```powershell
+python -m serialhub --web
+```
+
+To bind a different browser host or port:
+
+```powershell
+python -m serialhub --web --host 0.0.0.0 --port 8000
+```
+
+By default SerialHub stores local app data in a per-user application-data folder:
+
+- Windows: `%LOCALAPPDATA%\SerialHub`
+- Linux: `$XDG_DATA_HOME/SerialHub` or `~/.local/share/SerialHub`
+
+Override the storage location with `SERIALHUB_DATA_DIR` if needed.
 
 ## First-Time App Setup
 
@@ -112,8 +169,8 @@ python -m serialhub
 python -m pytest
 python -m ruff check src tests
 python -m compileall src tests
-.\scripts\build_release.ps1 -Version 1.9.2 -InstallDependencies
-./scripts/build_release_docker.sh 1.9.2
+.\scripts\build_release.ps1 -Version 2.0 -InstallDependencies
+./scripts/build_release_docker.sh 2.0
 ```
 
 ## Repository Layout
@@ -128,4 +185,4 @@ python -m compileall src tests
 - License: `GPLv3` ([LICENSE](LICENSE))
 - Contribution guide: [CONTRIBUTING.md](CONTRIBUTING.md)
 - Changelog: [CHANGELOG.md](CHANGELOG.md)
-- CI and release automation: [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
+- CI and release upload automation: [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
