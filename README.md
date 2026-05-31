@@ -2,17 +2,7 @@
 
 SerialHub is a cross-platform serial and TCP terminal built with Textual. It runs either as a native terminal app or as the same Textual UI served locally in a browser, with local user profiles, persistent device workspaces, command-config buttons, and per-device session logging.
 
-```text
-                                                                                                    
- ::::::::  :::::::::: :::::::::  :::::::::::     :::     :::        :::    ::: :::    ::: :::::::::  
-:+:    :+: :+:        :+:    :+:     :+:       :+: :+:   :+:        :+:    :+: :+:    :+: :+:    :+: 
-+:+        +:+        +:+    +:+     +:+      +:+   +:+  +:+        +:+    +:+ +:+    +:+ +:+    +:+ 
-+#++:++#++ +#++:++#   +#++:++#:      +#+     +#++:++#++: +#+        +#++:++#++ +#+    +:+ +#++:++#+  
-       +#+ +#+        +#+    +#+     +#+     +#+     +#+ +#+        +#+    +#+ +#+    +#+ +#+    +#+ 
-#+#    #+# #+#        #+#    #+#     #+#     #+#     #+# #+#        #+#    #+# #+#    #+# #+#    #+# 
- ########  ########## ###    ### ########### ###     ### ########## ###    ###  ########  #########  
-====================================================================================================
-```
+![SerialHub terminal mode screenshot](src/serialhub/assets/home.png)
 
 ## Features
 
@@ -23,6 +13,8 @@ SerialHub is a cross-platform serial and TCP terminal built with Textual. It run
 - Per-user command-config JSON files and a built-in config editor
 - Per-device logging with automatic filename generation
 - Theme toggle plus keyboard shortcuts for common actions
+
+---
 
 ## Requirements
 
