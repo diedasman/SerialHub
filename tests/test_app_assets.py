@@ -1,3 +1,5 @@
+from importlib.resources import files
+
 from serialhub import __version__
 from serialhub.app import SerialHubApp, load_app_css, load_ascii_logo, load_manual_markdown
 
@@ -7,6 +9,13 @@ def test_packaged_logo_is_available() -> None:
 
     assert logo
     assert len(logo.splitlines()) >= 2
+
+
+def test_packaged_windows_icon_is_available() -> None:
+    icon = files("serialhub").joinpath("assets").joinpath("app.ico")
+
+    assert icon.is_file()
+    assert icon.read_bytes().startswith(b"\x00\x00\x01\x00")
 
 
 def test_workspace_placeholder_uses_packaged_logo() -> None:

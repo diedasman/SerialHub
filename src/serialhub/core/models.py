@@ -3,6 +3,7 @@ from __future__ import annotations
 import ipaddress
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Literal, Protocol
 
 import serial
@@ -137,27 +138,148 @@ def can_coalesce_serial_payload(previous: SerialEvent, current: SerialEvent) -> 
 
 
 @dataclass(slots=True)
-class MacroDefinition:
-    name: str
-    payload: str
-    hex_mode: bool = False
+class MacroCommandDefinition:
+    label: str
+    command: str
     delay_ms: int = 0
 
-    def to_dict(self) -> dict[str, str | bool | int]:
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "label": self.label,
+            "command": self.command,
+            "delay_ms": self.delay_ms,
+        }
+
+    @classmethod
+    def from_value(
+        cls,
+        value: object,
+        *,
+        index: int,
+        default_delay_ms: int = 0,
+    ) -> MacroCommandDefinition | None:
+        if isinstance(value, dict):
+            command = str(value.get("command", value.get("value", value.get("payload", ""))))
+            if not command:
+                return None
+            label = str(value.get("label", f"Command {index}")).strip() or f"Command {index}"
+            raw_delay = value.get("delay_ms", value.get("delay", default_delay_ms))
+            try:
+                delay_ms = int(float(raw_delay or 0))
+            except (TypeError, ValueError):
+                delay_ms = default_delay_ms
+            return cls(label=label, command=command, delay_ms=max(0, delay_ms))
+
+        command = str(value)
+        if not command:
+            return None
+        return cls(label=f"Command {index}", command=command, delay_ms=max(0, default_delay_ms))
+
+
+@dataclass(slots=True, init=False)
+class MacroDefinition:
+    name: str
+    commands: list[MacroCommandDefinition]
+    label: str = ""
+    cmd_delay: float = 0.0
+    path: Path | None = None
+    _hex_mode: bool = False
+
+    def __init__(
+        self,
+        name: str,
+        commands: list[str | dict[str, object] | MacroCommandDefinition] | None = None,
+        label: str = "",
+        cmd_delay: float = 0.0,
+        path: Path | None = None,
+        *,
+        payload: str | None = None,
+        hex_mode: bool = False,
+        delay_ms: int | None = None,
+    ) -> None:
+        self.name = name
+        default_delay_ms = int(delay_ms) if delay_ms is not None else int(float(cmd_delay or 0) * 1000)
+        raw_commands: list[object] = list(commands or ([payload] if payload else []))
+        self.commands = []
+        for index, command in enumerate(raw_commands, start=1):
+            if isinstance(command, MacroCommandDefinition):
+                self.commands.append(command)
+                continue
+            parsed_command = MacroCommandDefinition.from_value(
+                command,
+                index=index,
+                default_delay_ms=default_delay_ms,
+            )
+            if parsed_command is not None:
+                self.commands.append(parsed_command)
+        self.label = label
+        self.cmd_delay = float(delay_ms) / 1000 if delay_ms is not None else float(cmd_delay)
+        self.path = path
+        self._hex_mode = bool(hex_mode)
+        if not self.label:
+            self.label = self.name
+
+    @property
+    def payload(self) -> str:
+        return self.commands[0].command if self.commands else ""
+
+    @property
+    def hex_mode(self) -> bool:
+        return self._hex_mode
+
+    @property
+    def delay_ms(self) -> int:
+        return int(self.cmd_delay * 1000)
+
+    def to_dict(self) -> dict[str, object]:
         return {
             "name": self.name,
-            "payload": self.payload,
-            "hex_mode": self.hex_mode,
-            "delay_ms": self.delay_ms,
+            "label": self.label,
+            "commands": [command.to_dict() for command in self.commands],
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, object]) -> MacroDefinition:
         name = str(data.get("name", "")).strip()
-        payload = str(data.get("payload", ""))
-        hex_mode = bool(data.get("hex_mode", False))
-        delay_ms = int(data.get("delay_ms", 0) or 0)
-        return cls(name=name, payload=payload, hex_mode=hex_mode, delay_ms=delay_ms)
+        label = str(data.get("label", name)).strip() or name
+        raw_commands = data.get("commands")
+        commands: list[MacroCommandDefinition] = []
+        raw_delay = data.get("cmd_delay", data.get("delay_ms", 0))
+        try:
+            cmd_delay = float(raw_delay or 0)
+        except (TypeError, ValueError):
+            cmd_delay = 0.0
+        if "delay_ms" in data and "cmd_delay" not in data:
+            cmd_delay = cmd_delay / 1000
+        default_delay_ms = int(cmd_delay * 1000)
+        if isinstance(raw_commands, list):
+            for index, item in enumerate(raw_commands, start=1):
+                command = MacroCommandDefinition.from_value(
+                    item,
+                    index=index,
+                    default_delay_ms=default_delay_ms,
+                )
+                if command is not None:
+                    commands.append(command)
+        elif data.get("payload") is not None:
+            # Backwards compatibility for the previous single-command macro format.
+            payload = str(data.get("payload", ""))
+            if payload:
+                commands = [
+                    MacroCommandDefinition(
+                        label=label or name,
+                        command=payload,
+                        delay_ms=default_delay_ms,
+                    )
+                ]
+
+        return cls(
+            name=name,
+            label=label,
+            commands=commands,
+            cmd_delay=max(0.0, cmd_delay),
+            hex_mode=bool(data.get("hex_mode", False)),
+        )
 
 
 ConnectionConfig = SerialConfig | TcpConfig

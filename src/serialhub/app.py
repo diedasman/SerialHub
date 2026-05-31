@@ -36,9 +36,12 @@ from textual.widgets import (  # type: ignore
 from serialhub import __version__
 from serialhub.config import get_data_dir, get_logs_dir
 from serialhub.core.device_manager import DeviceManager
+from serialhub.core.macro_store import MacroStore
 from serialhub.core.models import (
     DeviceInfo,
     DeviceTransport,
+    MacroCommandDefinition,
+    MacroDefinition,
     SerialConfig,
     SerialEvent,
     TcpConfig,
@@ -63,12 +66,16 @@ from serialhub.user_profiles import (
     get_remembered_username,
     get_user_command_configs_dir,
     get_user_default_logs_dir,
+    get_user_dir,
+    get_user_macro_path,
+    get_user_macros_dir,
     get_user_message_history_path,
     get_user_tcp_ip_history_path,
     get_user_tcp_port_history_path,
     load_command_config_document,
     load_command_configs,
     load_user_profile,
+    normalize_command_config_name,
     normalize_username,
     save_command_config_document,
     save_user_profile,
@@ -95,6 +102,7 @@ _INPUT_HISTORY_FALLBACK_FILENAMES = {
 
 _CONFIG_COMMAND_SEPARATOR = " / "
 _NEW_CONFIG_DOCUMENT_KEY = "__new__"
+_NEW_MACRO_DOCUMENT_KEY = "__new_macro__"
 _NO_STARTUP_COMMAND_CONFIG = "__none__"
 _CONFIG_GROUP_NONE = "__none__"
 _CONFIG_GROUP_NEW = "__new__"
@@ -104,6 +112,7 @@ _COMMAND_COLOR_KEY = "COLOR"
 _DEFAULT_COMMAND_COLOR = "blue"
 _COMMAND_COLOR_OPTIONS = [
     ("Blue", "blue"),
+    ("White", "off-white"),
     ("Yellow", "warning"),
     ("Red", "error"),
     ("Neutral", "default"),
@@ -150,6 +159,14 @@ class CommandButtonSpec:
 
 
 @dataclass(slots=True)
+class MacroButtonSpec:
+    name: str
+    label: str
+    commands: list[MacroCommandDefinition]
+    path: Path | None = None
+
+
+@dataclass(slots=True)
 class InputHistoryState:
     cache: list[str] = field(default_factory=list)
     index: int | None = None
@@ -163,6 +180,7 @@ class ConfigCommandDraft:
     value: str = ""
     group: str = ""
     color: str = _DEFAULT_COMMAND_COLOR
+    delay_ms: int = 0
 
 
 @dataclass(slots=True)
@@ -171,6 +189,7 @@ class ConfigEditorDocument:
     commands: list[ConfigCommandDraft] = field(default_factory=list)
     groups: list[str] = field(default_factory=list)
     path: Path | None = None
+    kind: str = "config"
 
 
 @dataclass(slots=True)
@@ -180,6 +199,15 @@ class ConfigCommandRowWidgets:
     value_input: Input
     group_select: Select
     color_select: Select
+    delete_button: Button
+
+
+@dataclass(slots=True)
+class MacroCommandRowWidgets:
+    row: Horizontal
+    label: Static
+    value_input: Input
+    delay_input: Input
     delete_button: Button
 
 
@@ -242,7 +270,25 @@ WorkspaceActivityIndicator = WorkspaceActivityLed
 
 class CommandConfigDirectoryTree(DirectoryTree):
     def filter_paths(self, paths: list[Path]) -> list[Path]:
-        return [path for path in paths if path.is_dir() or path.suffix.lower() == ".json"]
+        root = Path(self.path).resolve()
+        allowed_dirs = {"configs", "macros"}
+        filtered: list[Path] = []
+        for path in paths:
+            resolved = path.resolve()
+            if resolved == root:
+                filtered.append(path)
+                continue
+            try:
+                relative = resolved.relative_to(root)
+            except ValueError:
+                continue
+            parts = relative.parts
+            if len(parts) == 1 and path.is_dir() and parts[0] in allowed_dirs:
+                filtered.append(path)
+                continue
+            if len(parts) == 2 and parts[0] in allowed_dirs and path.suffix.lower() == ".json":
+                filtered.append(path)
+        return filtered
 
 
 class UserLoginScreen(ModalScreen[None]):
@@ -741,8 +787,9 @@ class ConfigEditorScreen(Screen[None]):
         Binding("ctrl+s", "save_config_document", "Save File"),
     ]
 
-    def __init__(self) -> None:
+    def __init__(self, initial_path: Path | None = None) -> None:
         super().__init__()
+        self.initial_path = initial_path
         self.selected_path: Path | None = None
         self._active_document_key: str | None = None
         self._document_drafts: dict[str, ConfigEditorDocument] = {}
@@ -750,17 +797,24 @@ class ConfigEditorScreen(Screen[None]):
         self._active_command_row_ids: list[int] = []
         self._command_row_widgets: dict[int, ConfigCommandRowWidgets] = {}
         self._command_row_counter = 0
+        self._macro_command_row_ids: list[int] = []
+        self._active_macro_command_row_ids: list[int] = []
+        self._macro_command_row_widgets: dict[int, MacroCommandRowWidgets] = {}
+        self._macro_command_row_counter = 0
         self._rendering_form = False
+        self._focus_request_counter = 0
 
     def compose(self) -> ComposeResult:
         app = self.app
-        config_root = get_user_command_configs_dir(app.current_user.username)
+        config_root = get_user_dir(app.current_user.username)
+        get_user_command_configs_dir(app.current_user.username)
+        get_user_macros_dir(app.current_user.username)
 
         with Horizontal(id="config-editor-layout"):
             with Vertical(id="config-file-browser", classes="panel"):
                 with Horizontal(id="config-browser-actions"):
-                    yield Button("New", id="config-new", variant="success")
-                    yield Button("Delete", id="config-delete", variant="error")
+                    yield Button("New Config", id="config-new", variant="success")
+                    yield Button("New Macro", id="macro-new", variant="success")
                 yield CommandConfigDirectoryTree(config_root, id="config-file-tree")
 
             with Vertical(id="config-command-editor", classes="panel"):
@@ -771,9 +825,19 @@ class ConfigEditorScreen(Screen[None]):
                         yield Button("Add Command", id="config-add-command", variant="primary")
                     with VerticalScroll(id="config-editor-scroll"):
                         yield Vertical(id="config-command-rows")
-                    with Horizontal(id="config-editor-actions"):
-                        yield Button("Save", id="config-save", variant="success", disabled=True)
-                        yield Button("Close", id="config-close", variant="error")
+
+                with Vertical(id="macro-editor-form"):
+                    with Horizontal(id="macro-label-row"):
+                        yield Static("LABEL", classes="config-input-label")
+                        yield Input(placeholder="macro label", id="macro-label-input")
+                        yield Button("Add Command", id="macro-add-command", variant="primary")
+                    with VerticalScroll(id="macro-editor-scroll"):
+                        yield Vertical(id="macro-command-rows")
+
+                with Horizontal(id="config-editor-actions"):
+                    yield Button("Save", id="config-save", variant="success", disabled=True)
+                    yield Button("Close", id="config-close", variant="warning")
+                    yield Button("Delete", id="config-delete", variant="error")
 
             with Vertical(id="config-file-preview", classes="panel"):
                 with VerticalScroll(id="config-preview-scroll"):
@@ -783,8 +847,20 @@ class ConfigEditorScreen(Screen[None]):
 
     def on_mount(self) -> None:
         self._set_panel_border_titles()
-        self.query_one("#config-file-tree", CommandConfigDirectoryTree).focus()
+        tree = self.query_one("#config-file-tree", CommandConfigDirectoryTree)
+        tree.focus()
         self._render_empty_editor()
+        self.call_after_refresh(self._expand_file_tree_roots)
+        if self.initial_path is not None:
+            self.call_after_refresh(self._display_document_for_path, self.initial_path)
+
+    def _expand_file_tree_roots(self) -> None:
+        tree = self.query_one("#config-file-tree", CommandConfigDirectoryTree)
+        tree.root.expand()
+        for node in tree.root.children:
+            path = getattr(node.data, "path", None)
+            if isinstance(path, Path) and path.name in {"configs", "macros"}:
+                node.expand()
 
     def _set_panel_border_titles(self) -> None:
         self.query_one("#config-file-browser", Vertical).border_title = " COMMAND FILE BROWSER "
@@ -793,7 +869,7 @@ class ConfigEditorScreen(Screen[None]):
 
     def action_close_config_editor(self) -> None:
         self.app.pop_screen()
-        self.app.call_after_refresh(self.app._refresh_command_configs)
+        self.app.call_after_refresh(self.app._refresh_user_command_assets)
 
     def action_save_config_document(self) -> None:
         self._save_active_document()
@@ -803,11 +879,17 @@ class ConfigEditorScreen(Screen[None]):
         if button_id == "config-new":
             self._open_new_document()
             return
+        if button_id == "macro-new":
+            self._open_new_macro_document()
+            return
         if button_id == "config-delete":
             self._confirm_delete_selected_document()
             return
         if button_id == "config-add-command":
             self._add_command_row()
+            return
+        if button_id == "macro-add-command":
+            self._add_macro_command_row()
             return
         if button_id == "config-save":
             self._save_active_document()
@@ -821,6 +903,13 @@ class ConfigEditorScreen(Screen[None]):
             except ValueError:
                 return
             self._delete_command_row(row_id)
+            return
+        if button_id.startswith("macro-command-delete-"):
+            try:
+                row_id = int(button_id.rsplit("-", 1)[-1])
+            except ValueError:
+                return
+            self._delete_macro_command_row(row_id)
 
     def on_tree_node_highlighted(self, event: DirectoryTree.NodeHighlighted) -> None:
         if event.control.id != "config-file-tree":
@@ -836,7 +925,12 @@ class ConfigEditorScreen(Screen[None]):
         input_id = event.input.id or ""
         if self._rendering_form:
             return
-        if input_id == "config-name-input" or input_id.startswith("config-command-"):
+        if (
+            input_id == "config-name-input"
+            or input_id.startswith("config-command-")
+            or input_id == "macro-label-input"
+            or input_id.startswith("macro-command-")
+        ):
             self._update_active_document_from_form()
 
     def on_select_changed(self, event: Select.Changed) -> None:
@@ -861,15 +955,34 @@ class ConfigEditorScreen(Screen[None]):
         self._store_active_document_draft()
         document = self._document_drafts.get(
             _NEW_CONFIG_DOCUMENT_KEY,
-            ConfigEditorDocument(commands=[ConfigCommandDraft()]),
+            ConfigEditorDocument(commands=[ConfigCommandDraft()], kind="config"),
         )
         if not document.commands:
             document.commands = [ConfigCommandDraft()]
         document.path = None
+        document.kind = "config"
         self._document_drafts[_NEW_CONFIG_DOCUMENT_KEY] = document
         self.selected_path = None
         self._active_document_key = _NEW_CONFIG_DOCUMENT_KEY
         self._render_document(document, focus_target="#config-name-input")
+
+    def _open_new_macro_document(self) -> None:
+        self._store_active_document_draft()
+        document = self._document_drafts.get(
+            _NEW_MACRO_DOCUMENT_KEY,
+            ConfigEditorDocument(
+                commands=[ConfigCommandDraft(label="Command 1", delay_ms=0)],
+                kind="macro",
+            ),
+        )
+        if not document.commands:
+            document.commands = [ConfigCommandDraft(label="Command 1", delay_ms=0)]
+        document.path = None
+        document.kind = "macro"
+        self._document_drafts[_NEW_MACRO_DOCUMENT_KEY] = document
+        self.selected_path = None
+        self._active_document_key = _NEW_MACRO_DOCUMENT_KEY
+        self._render_document(document, focus_target="#macro-label-input")
 
     def _display_document_for_path(self, path: Path) -> None:
         if path.suffix.lower() != ".json":
@@ -914,7 +1027,10 @@ class ConfigEditorScreen(Screen[None]):
             return
 
         try:
-            delete_command_config_document(self.app.current_user, path)
+            if self._is_macro_path(path):
+                path.unlink()
+            else:
+                delete_command_config_document(self.app.current_user, path)
         except FileNotFoundError:
             self.app.notify(f"{path.name} was already removed.", severity="warning")
             return
@@ -928,13 +1044,43 @@ class ConfigEditorScreen(Screen[None]):
         if self._active_document_key == deleted_key:
             self._render_empty_editor()
         self.query_one("#config-file-tree", CommandConfigDirectoryTree).reload()
-        self.app._refresh_command_configs()
+        self.call_after_refresh(self._expand_file_tree_roots)
+        self.app._refresh_user_command_assets()
         self.app.notify(f"Deleted {path.name}")
 
     def _document_key_for_path(self, path: Path) -> str:
         return str(path.resolve())
 
+    def _is_macro_path(self, path: Path | None) -> bool:
+        if path is None or self.app.current_user is None:
+            return False
+        try:
+            path.resolve().relative_to(get_user_macros_dir(self.app.current_user.username).resolve())
+        except ValueError:
+            return False
+        return True
+
     def _document_from_payload(self, path: Path, payload: dict[str, object]) -> ConfigEditorDocument:
+        if self._is_macro_path(path) or "commands" in payload or "cmd_delay" in payload:
+            macro = MacroDefinition.from_dict(payload)
+            entries = [
+                ConfigCommandDraft(
+                    label=command.label or f"Command {index}",
+                    value=escape_command_value_for_editor(command.command),
+                    delay_ms=command.delay_ms,
+                )
+                for index, command in enumerate(macro.commands, start=1)
+            ]
+            if not entries:
+                entries = [ConfigCommandDraft(label="Command 1", delay_ms=0)]
+            return ConfigEditorDocument(
+                name=macro.label or macro.name or path.stem,
+                commands=entries,
+                groups=[],
+                path=path,
+                kind="macro",
+            )
+
         commands = payload.get("COMMANDS", {})
         if not isinstance(commands, dict):
             raise ValueError(f"Command config '{path.name}' must contain an object under COMMANDS.")
@@ -946,6 +1092,7 @@ class ConfigEditorScreen(Screen[None]):
             commands=entries,
             groups=self._groups_from_entries(entries),
             path=path,
+            kind="config",
         )
 
     def _flatten_command_entries(
@@ -990,29 +1137,46 @@ class ConfigEditorScreen(Screen[None]):
         self._active_document_key = None
         self.selected_path = None
         self._active_command_row_ids = []
+        self._active_macro_command_row_ids = []
         self.query_one("#config-save", Button).disabled = True
         self.query_one("#config-editor-preview", Static).update("")
         self._set_editor_input_value(self.query_one("#config-name-input", Input), "")
+        self._set_editor_input_value(self.query_one("#macro-label-input", Input), "")
         for row_id, widgets in self._command_row_widgets.items():
             self._set_editor_input_value(widgets.label_input, "")
             self._set_editor_input_value(widgets.value_input, "")
             self._set_group_select_options(widgets.group_select, [], _CONFIG_GROUP_NONE)
             widgets.row.display = False
+        for row_id, widgets in self._macro_command_row_widgets.items():
+            widgets.label.update("")
+            self._set_editor_input_value(widgets.value_input, "")
+            self._set_editor_input_value(widgets.delay_input, "")
+            widgets.row.display = False
         self.query_one("#config-editor-form", Vertical).display = False
+        self.query_one("#macro-editor-form", Vertical).display = False
 
     def _render_document(self, document: ConfigEditorDocument, *, focus_target: str | None = None) -> None:
         self._rendering_form = True
-        self._populate_document_body(document)
+        if document.kind == "macro":
+            self._populate_macro_document_body(document)
+        else:
+            self._populate_config_document_body(document)
         self._rendering_form = False
         if focus_target:
-            self.call_after_refresh(self._focus_input, focus_target)
+            self._focus_request_counter += 1
+            request_id = self._focus_request_counter
+            self._focus_input_if_current(focus_target, request_id)
+            self.call_after_refresh(self._focus_input_if_current, focus_target, request_id)
+            self.set_timer(0.01, lambda: self._focus_input_if_current(focus_target, request_id))
 
-    def _populate_document_body(self, document: ConfigEditorDocument) -> None:
+    def _populate_config_document_body(self, document: ConfigEditorDocument) -> None:
         entries = document.commands or [ConfigCommandDraft()]
         document.groups = self._merged_document_groups(document)
         self._ensure_command_rows(len(entries))
         self._active_command_row_ids = self._command_row_ids[: len(entries)]
+        self._active_macro_command_row_ids = []
         self.query_one("#config-editor-form", Vertical).display = True
+        self.query_one("#macro-editor-form", Vertical).display = False
         self._set_editor_input_value(self.query_one("#config-name-input", Input), document.name)
 
         for index, row_id in enumerate(self._command_row_ids):
@@ -1039,6 +1203,32 @@ class ConfigEditorScreen(Screen[None]):
         self.query_one("#config-save", Button).disabled = False
         self._refresh_preview(document)
 
+    def _populate_macro_document_body(self, document: ConfigEditorDocument) -> None:
+        entries = document.commands or [ConfigCommandDraft()]
+        self._ensure_macro_command_rows(len(entries))
+        self._active_command_row_ids = []
+        self._active_macro_command_row_ids = self._macro_command_row_ids[: len(entries)]
+        self.query_one("#config-editor-form", Vertical).display = False
+        self.query_one("#macro-editor-form", Vertical).display = True
+        self._set_editor_input_value(self.query_one("#macro-label-input", Input), document.name)
+
+        for index, row_id in enumerate(self._macro_command_row_ids):
+            widgets = self._macro_command_row_widgets[row_id]
+            if index < len(entries):
+                entry = entries[index]
+                widgets.label.update(f"Command {index + 1}")
+                self._set_editor_input_value(widgets.value_input, entry.value)
+                self._set_editor_input_value(widgets.delay_input, str(max(0, entry.delay_ms)))
+                widgets.row.display = True
+                continue
+            widgets.label.update("")
+            self._set_editor_input_value(widgets.value_input, "")
+            self._set_editor_input_value(widgets.delay_input, "")
+            widgets.row.display = False
+
+        self.query_one("#config-save", Button).disabled = False
+        self._refresh_preview(document)
+
     def _set_editor_input_value(self, input_widget: Input, value: str) -> None:
         input_widget.value = value
         input_widget.view_position = 0
@@ -1048,6 +1238,11 @@ class ConfigEditorScreen(Screen[None]):
         container = self.query_one("#config-command-rows", Vertical)
         while len(self._command_row_ids) < count:
             self._mount_command_row(container)
+
+    def _ensure_macro_command_rows(self, count: int) -> None:
+        container = self.query_one("#macro-command-rows", Vertical)
+        while len(self._macro_command_row_ids) < count:
+            self._mount_macro_command_row(container)
 
     def _mount_command_row(self, container: Vertical) -> None:
         self._command_row_counter += 1
@@ -1101,6 +1296,51 @@ class ConfigEditorScreen(Screen[None]):
             value_input=value_input,
             group_select=group_select,
             color_select=color_select,
+            delete_button=delete_button,
+        )
+        container.mount(row)
+
+    def _mount_macro_command_row(self, container: Vertical) -> None:
+        self._macro_command_row_counter += 1
+        row_id = self._macro_command_row_counter
+        label = Static(
+            "",
+            id=f"macro-command-label-{row_id}",
+            classes="config-input-label macro-command-label",
+        )
+        value_input = Input(
+            placeholder="serial string sent by this macro step",
+            id=f"macro-command-value-{row_id}",
+            classes="macro-command-input",
+        )
+        delay_input = Input(
+            placeholder="delay ms",
+            id=f"macro-command-delay-{row_id}",
+            classes="macro-command-delay-input",
+        )
+        delete_button = Button(
+            " X ",
+            id=f"macro-command-delete-{row_id}",
+            variant="warning",
+            classes="config-command-delete",
+        )
+        row = Horizontal(
+            label,
+            # Static("STRING", classes="config-input-label"),
+            value_input,
+            Static("DELAY", classes="config-input-label"),
+            delay_input,
+            delete_button,
+            id=f"macro-command-row-{row_id}",
+            classes="macro-command-row",
+        )
+        row.display = False
+        self._macro_command_row_ids.append(row_id)
+        self._macro_command_row_widgets[row_id] = MacroCommandRowWidgets(
+            row=row,
+            label=label,
+            value_input=value_input,
+            delay_input=delay_input,
             delete_button=delete_button,
         )
         container.mount(row)
@@ -1190,8 +1430,22 @@ class ConfigEditorScreen(Screen[None]):
         if self._active_document_key is not None:
             self._document_drafts[self._active_document_key] = document
         next_index = len(document.commands) - 1
-        focus_target = self._command_focus_selector(next_index)
+        self._ensure_command_rows(len(document.commands))
+        focus_target = self._command_value_focus_selector(next_index)
         self._render_document(document, focus_target=focus_target)
+
+    def _add_macro_command_row(self) -> None:
+        document = self._document_from_form()
+        if document is None:
+            self.app.notify("Focus a macro file first.", severity="warning")
+            return
+
+        document.commands.append(ConfigCommandDraft())
+        if self._active_document_key is not None:
+            self._document_drafts[self._active_document_key] = document
+        next_index = len(document.commands) - 1
+        self._ensure_macro_command_rows(len(document.commands))
+        self._render_document(document, focus_target=self._macro_command_focus_selector(next_index))
 
     def _delete_command_row(self, row_id: int) -> None:
         if row_id not in self._active_command_row_ids:
@@ -1216,18 +1470,68 @@ class ConfigEditorScreen(Screen[None]):
         target_index = min(index, len(document.commands) - 1)
         self._render_document(document, focus_target=self._command_focus_selector(target_index))
 
+    def _delete_macro_command_row(self, row_id: int) -> None:
+        if row_id not in self._active_macro_command_row_ids:
+            return
+
+        document = self._document_from_form()
+        if document is None:
+            return
+
+        index = self._active_macro_command_row_ids.index(row_id)
+        if index >= len(document.commands):
+            return
+
+        document.commands.pop(index)
+        if self._active_document_key is not None:
+            self._document_drafts[self._active_document_key] = document
+
+        if not document.commands:
+            self._render_document(document, focus_target="#macro-label-input")
+            return
+
+        target_index = min(index, len(document.commands) - 1)
+        self._render_document(document, focus_target=self._macro_command_focus_selector(target_index))
+
     def _focus_input(self, selector: str) -> None:
         try:
             self.query_one(selector, Input).focus()
         except NoMatches:
             return
 
+    def _focus_input_if_current(self, selector: str, request_id: int) -> None:
+        if request_id != self._focus_request_counter:
+            return
+        self._focus_input(selector)
+
     def _command_focus_selector(self, index: int) -> str:
         if index < 0 or index >= len(self._command_row_ids):
             return "#config-name-input"
         return f"#config-command-label-{self._command_row_ids[index]}"
 
+    def _command_value_focus_selector(self, index: int) -> str:
+        if index < 0 or index >= len(self._command_row_ids):
+            return "#config-name-input"
+        return f"#config-command-value-{self._command_row_ids[index]}"
+
+    def _macro_command_focus_selector(self, index: int) -> str:
+        if index < 0 or index >= len(self._macro_command_row_ids):
+            return "#macro-label-input"
+        return f"#macro-command-value-{self._macro_command_row_ids[index]}"
+
     def _document_from_form(self) -> ConfigEditorDocument | None:
+        kind = "macro" if self._is_macro_path(self.selected_path) else "config"
+        if self._active_document_key is not None:
+            stored = self._document_drafts.get(self._active_document_key)
+            if stored is not None:
+                kind = stored.kind
+
+        if kind == "macro":
+            return self._macro_document_from_form()
+
+        return self._config_document_from_form()
+
+    def _config_document_from_form(self) -> ConfigEditorDocument | None:
         try:
             name_input = self.query_one("#config-name-input", Input)
         except NoMatches:
@@ -1258,6 +1562,39 @@ class ConfigEditorScreen(Screen[None]):
             commands=commands,
             groups=groups,
             path=self.selected_path,
+            kind="config",
+        )
+
+    def _macro_document_from_form(self) -> ConfigEditorDocument | None:
+        try:
+            label_input = self.query_one("#macro-label-input", Input)
+        except NoMatches:
+            return None
+
+        commands: list[ConfigCommandDraft] = []
+        for index, row_id in enumerate(self._active_macro_command_row_ids, start=1):
+            widgets = self._macro_command_row_widgets.get(row_id)
+            if widgets is None:
+                continue
+            delay_text = widgets.delay_input.value.strip()
+            try:
+                delay_ms = max(0, int(float(delay_text or 0)))
+            except ValueError:
+                delay_ms = -1
+            commands.append(
+                ConfigCommandDraft(
+                    label=f"Command {index}",
+                    value=widgets.value_input.value,
+                    delay_ms=delay_ms,
+                )
+            )
+
+        return ConfigEditorDocument(
+            name=label_input.value,
+            commands=commands,
+            groups=[],
+            path=self.selected_path,
+            kind="macro",
         )
 
     def _store_active_document_draft(self) -> None:
@@ -1287,6 +1624,9 @@ class ConfigEditorScreen(Screen[None]):
         *,
         strict: bool,
     ) -> tuple[dict[str, object], list[str]]:
+        if document.kind == "macro":
+            return self._build_macro_payload(document, strict=strict)
+
         payload: dict[str, object] = {
             "NAME": document.name.strip(),
             "COMMANDS": {},
@@ -1321,6 +1661,55 @@ class ConfigEditorScreen(Screen[None]):
             errors.insert(0, "Enter a NAME before saving.")
 
         return payload, errors
+
+    def _build_macro_payload(
+        self,
+        document: ConfigEditorDocument,
+        *,
+        strict: bool,
+    ) -> tuple[dict[str, object], list[str]]:
+        label = document.name.strip()
+        try:
+            name = normalize_command_config_name(label) if label else ""
+        except ValueError as exc:
+            name = ""
+            errors = [str(exc)]
+        else:
+            errors = []
+        commands: list[dict[str, object]] = []
+
+        for index, entry in enumerate(document.commands, start=1):
+            value = unescape_command_value_from_editor(entry.value)
+            if not entry.label.strip() and not value:
+                continue
+            command_label = entry.label.strip() or f"Command {index}"
+            if value == "":
+                errors.append(f"Command row {index} needs a STRING.")
+                continue
+            if entry.delay_ms < 0:
+                errors.append(f"Command row {index} needs a DELAY greater than or equal to zero.")
+                continue
+            commands.append(
+                {
+                    "label": command_label,
+                    "command": value,
+                    "delay_ms": entry.delay_ms,
+                }
+            )
+
+        if strict and not label:
+            errors.insert(0, "Enter a NAME before saving.")
+        if strict and not commands:
+            errors.append("Add at least one macro command before saving.")
+
+        return (
+            {
+                "name": name,
+                "label": label,
+                "commands": commands,
+            },
+            errors,
+        )
 
     def _insert_command_value(
         self,
@@ -1382,12 +1771,21 @@ class ConfigEditorScreen(Screen[None]):
 
         previous_path = self.selected_path
         try:
-            saved_path = save_command_config_document(
-                self.app.current_user,
-                document.name,
-                payload,
-                previous_path=previous_path,
-            )
+            if document.kind == "macro":
+                macro_name = str(payload.get("name", "")).strip()
+                saved_path = get_user_macro_path(self.app.current_user.username, macro_name)
+                if previous_path is not None and previous_path != saved_path and saved_path.exists():
+                    raise FileExistsError(f"Macro '{saved_path.name}' already exists.")
+                MacroStore.save_macro(saved_path, MacroDefinition.from_dict(payload))
+                if previous_path is not None and previous_path != saved_path and previous_path.exists():
+                    previous_path.unlink()
+            else:
+                saved_path = save_command_config_document(
+                    self.app.current_user,
+                    document.name,
+                    payload,
+                    previous_path=previous_path,
+                )
         except FileExistsError as exc:
             self.app.notify(str(exc), severity="error")
             return
@@ -1404,7 +1802,9 @@ class ConfigEditorScreen(Screen[None]):
         self._active_document_key = new_key
         self._render_document(saved_document)
         self.query_one("#config-file-tree", CommandConfigDirectoryTree).reload()
+        self.call_after_refresh(self._expand_file_tree_roots)
         self.app._sync_command_config_cache()
+        self.app._refresh_macros()
         self.app.notify(f"Saved {saved_path.name}")
 
 
@@ -1458,6 +1858,10 @@ class SerialHubApp(App[None]):
         self._command_button_counter = 0
         self._command_configs: dict[str, CommandConfig] = {}
         self._command_buttons: dict[str, CommandButtonSpec] = {}
+        self._macros: dict[str, MacroButtonSpec] = {}
+        self._macro_run_buttons: dict[str, str] = {}
+        self._macro_edit_buttons: dict[str, str] = {}
+        self._macro_button_counter = 0
         self._refreshing_command_configs = False
         self._refreshing_tcp_favorites = False
         self._tcp_favorites: dict[str, tuple[str, int, str]] = {}
@@ -1663,8 +2067,8 @@ class SerialHubApp(App[None]):
                     yield Checkbox("HEX", id="tx-hex-checkbox")
 
                 with Horizontal(id="function-buttons-row"):
-                    yield Checkbox("Timestamps", value=True, id="timestamp-checkbox")
-                    yield Checkbox("Chevrons", value=True, id="chevron-checkbox")
+                    yield Checkbox("Time", value=True, id="timestamp-checkbox")
+                    yield Checkbox("<</>>", value=True, id="chevron-checkbox")
                     yield Input(placeholder=self._log_path_placeholder(), id="log-filepath")
                     yield Button("Save Log", id="toggle-logging")
 
@@ -1692,6 +2096,8 @@ class SerialHubApp(App[None]):
                         yield VerticalScroll(id="command-buttons-scroll")
                     with TabPane("History", id="command-history-tab"):
                         yield ListView(id="command-history-list", classes="command-history-list")
+                    with TabPane("Macros", id="command-macros-tab"):
+                        yield VerticalScroll(id="macro-list-scroll")
 
         with Horizontal(id="footer-row"):
             yield Footer(id="app-footer")
@@ -1845,6 +2251,16 @@ class SerialHubApp(App[None]):
         command_button = self._command_buttons.get(button_id)
         if command_button:
             self._send_user_defined_command(command_button)
+            return
+
+        macro_key = self._macro_run_buttons.get(button_id)
+        if macro_key:
+            self._run_macro(macro_key)
+            return
+
+        macro_key = self._macro_edit_buttons.get(button_id)
+        if macro_key:
+            self._edit_macro(macro_key)
             return
 
         if button_id == "refresh-devices":
@@ -2098,8 +2514,12 @@ class SerialHubApp(App[None]):
 
         self._apply_ui_visibility_preferences()
         self._refresh_tcp_favorites()
+        self._refresh_user_command_assets()
+
+    def _refresh_user_command_assets(self) -> None:
         self._refresh_command_configs()
         self._refresh_command_history_list()
+        self._refresh_macros()
 
     def _show_activity_widget_enabled(self) -> bool:
         if not self.current_user:
@@ -2216,6 +2636,72 @@ class SerialHubApp(App[None]):
         configs = load_command_configs(self.current_user)
         self._command_configs = {config.key: config for config in configs}
 
+    def _refresh_macros(self) -> None:
+        try:
+            scroll = self._query_ui("#macro-list-scroll", VerticalScroll)
+        except NoMatches:
+            return
+
+        self._macros.clear()
+        self._macro_run_buttons.clear()
+        self._macro_edit_buttons.clear()
+        for child in list(scroll.children):
+            child.remove()
+
+        if not self.current_user:
+            scroll.mount(Static("Sign in to load macros.", classes="hint"))
+            return
+
+        macros_dir = get_user_macros_dir(self.current_user.username)
+        macros = MacroStore(macros_dir).load()
+        if not macros:
+            scroll.mount(Static("No macro files were found for this user.", classes="hint"))
+            return
+
+        rows: list[Widget] = []
+        for macro in macros:
+            if macro.path is None:
+                continue
+            self._macro_button_counter += 1
+            macro_key = str(macro.path.resolve())
+            run_id = f"macro-run-{self._macro_button_counter}"
+            edit_id = f"macro-edit-{self._macro_button_counter}"
+            self._macros[macro_key] = MacroButtonSpec(
+                name=macro.name,
+                label=macro.label or macro.name,
+                commands=macro.commands,
+                path=macro.path,
+            )
+            self._macro_run_buttons[run_id] = macro_key
+            self._macro_edit_buttons[edit_id] = macro_key
+            rows.append(
+                Horizontal(
+                    Vertical(
+                        Static(macro.label or macro.name, classes="macro-label"),
+                        Static(self._macro_command_summary(macro.commands), classes="macro-command-summary"),
+                        classes="macro-summary",
+                    ),
+                    Button("Run", id=run_id, variant="success", classes="macro-action"),
+                    Button("Edit", id=edit_id, variant="warning", classes="macro-action"),
+                    classes="macro-row",
+                )
+            )
+
+        if rows:
+            scroll.mount_all(rows)
+            return
+        scroll.mount(Static("No valid macro files were found for this user.", classes="hint"))
+
+    def _macro_command_summary(self, commands: Sequence[MacroCommandDefinition]) -> str:
+        values = [
+            command.command.replace("\r", "\\r").replace("\n", "\\n")
+            for command in commands
+            if command.command
+        ]
+        if not values:
+            return "No commands"
+        return "\n".join(values)
+
     def _render_command_buttons(self, config_key: str | None, placeholder: str | None = None) -> None:
         scroll = self._query_ui("#command-buttons-scroll", VerticalScroll)
         self._command_buttons.clear()
@@ -2315,7 +2801,11 @@ class SerialHubApp(App[None]):
             payload=payload,
             color=normalized_color,
         )
-        variant = "default" if normalized_color == "blue" else normalized_color
+        variant = (
+            normalized_color
+            if normalized_color in {"default", "warning", "error", "success"}
+            else "default"
+        )
         color_class = f"command-color-{normalized_color}"
         return Button(
             name,
@@ -2654,6 +3144,65 @@ class SerialHubApp(App[None]):
         self._save_to_message_history(command.payload)
         self._invalidate_input_history_cache(INPUT_HISTORY_MESSAGE)
         self._refresh_command_history_list()
+
+    def _run_macro(self, macro_key: str) -> None:
+        macro = self._macros.get(macro_key)
+        if macro is None:
+            self.notify("Macro was not found.", severity="warning")
+            self._refresh_macros()
+            return
+
+        device_id = self.active_device_id
+        if not device_id:
+            self.notify("Connect and select an active device first.", severity="warning")
+            return
+
+        commands = [command for command in macro.commands if command.command]
+        if not commands:
+            self.notify(f"Macro '{macro.label}' has no commands.", severity="warning")
+            return
+
+        conn = self.device_manager.get_connection(device_id)
+        if not conn or not conn.is_open:
+            self.notify(f"Device {device_id} is not connected.", severity="warning")
+            return
+
+        elapsed_seconds = 0.0
+        for index, command in enumerate(commands):
+            if index == 0:
+                self._send_macro_command(device_id, command)
+                elapsed_seconds += max(0, command.delay_ms) / 1000
+                continue
+            if elapsed_seconds <= 0:
+                self._send_macro_command(device_id, command)
+                elapsed_seconds += max(0, command.delay_ms) / 1000
+                continue
+            self.set_timer(
+                elapsed_seconds,
+                lambda command=command: self._send_macro_command(device_id, command),
+            )
+            elapsed_seconds += max(0, command.delay_ms) / 1000
+        self.notify(f"Running macro '{macro.label}' ({len(commands)} command(s)).")
+
+    def _send_macro_command(self, device_id: str, command: MacroCommandDefinition) -> None:
+        payload = command.command.encode("utf-8")
+        if not payload:
+            return
+        self._send_payload(device_id, payload)
+        self._save_to_message_history(command.command)
+        self._invalidate_input_history_cache(INPUT_HISTORY_MESSAGE)
+        self._refresh_command_history_list()
+
+    def _edit_macro(self, macro_key: str) -> None:
+        macro = self._macros.get(macro_key)
+        if macro is None or macro.path is None:
+            self.notify("Macro was not found.", severity="warning")
+            self._refresh_macros()
+            return
+        if isinstance(self.screen, ConfigEditorScreen):
+            self.screen._display_document_for_path(macro.path)
+            return
+        self.push_screen(ConfigEditorScreen(initial_path=macro.path))
 
     def _send_payload(self, device_id: str, payload: bytes) -> None:
         conn = self.device_manager.get_connection(device_id)

@@ -4,6 +4,37 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.9.2] - 2026-05-31
+
+### Changed
+
+- Updated macro command summaries to render each command string on its own line for easier scanning.
+- Tightened Macros tab spacing and added secondary borders around macro rows.
+- Renamed the Off White command-button color option to White while keeping the same off-white styling.
+
+---
+
+## [1.9.1] - 2026-05-31
+
+### Added
+
+- Added user macros with a Macros tab, run/edit actions, per-command delays, and editable macro JSON files.
+- Added generated macro command labels in the Command Builder so macro steps are indexed by row order.
+- Added an Off White command-button color option.
+- Added local Windows release build documentation and a local PyInstaller release script.
+
+### Changed
+
+- Updated the Command Builder layout with clearer row borders and improved Add Command focus behavior.
+- Updated the Macros tab to show each macro's command strings in the secondary theme color.
+- Changed release automation so GitHub Actions no longer builds the Windows executable in the cloud; tagged releases publish a locally built `dist/SerialHub-v*.exe` when committed.
+
+### Fixed
+
+- Added regression coverage for macro loading, macro editing, macro execution, command color handling, and Command Builder focus.
+
+---
+
 ## [Unreleased] - 2026-04-25
 
 ### Changed

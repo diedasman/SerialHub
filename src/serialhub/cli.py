@@ -4,8 +4,7 @@ import argparse
 import sys
 
 from serialhub import __version__
-from serialhub.app import SerialHubApp
-from serialhub.web import DEFAULT_WEB_HOST, DEFAULT_WEB_PORT, run_web_app
+from serialhub.web import DEFAULT_WEB_HOST, DEFAULT_WEB_PORT
 
 
 def parse_port(value: str) -> int:
@@ -45,6 +44,18 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def run_terminal_app() -> None:
+    from serialhub.app import SerialHubApp
+
+    SerialHubApp().run()
+
+
+def run_browser_app(*, host: str, port: int) -> None:
+    from serialhub.web import run_web_app
+
+    run_web_app(host=host, port=port)
+
+
 def main(argv: list[str] | None = None) -> int:
     raw_args = list(sys.argv[1:] if argv is None else argv)
     if raw_args[:1] == ["run"]:
@@ -54,9 +65,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(raw_args)
 
     if args.web:
-        run_web_app(host=args.host, port=args.port)
+        run_browser_app(host=args.host, port=args.port)
         return 0
 
-    app = SerialHubApp()
-    app.run()
+    run_terminal_app()
     return 0

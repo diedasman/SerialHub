@@ -21,6 +21,8 @@ from serialhub.user_profiles import (
     create_user_profile,
     get_user_command_config_path,
     get_user_default_logs_dir,
+    get_user_dir,
+    get_user_macro_path,
     get_user_tcp_ip_history_path,
     get_user_tcp_port_history_path,
     load_user_profile,
@@ -106,6 +108,7 @@ class FakeDeviceManager:
     def __init__(self) -> None:
         self.connected: set[str] = set()
         self.devices = [DeviceInfo(port="COM1", description="Demo Device", hwid="HWID-1")]
+        self.sent_payloads: list[bytes] = []
 
     def scan_devices(self) -> list[DeviceInfo]:
         return self.devices
@@ -125,7 +128,11 @@ class FakeDeviceManager:
         self.connected.clear()
 
     def get_connection(self, device_id: str):
-        return SimpleNamespace(is_open=device_id in self.connected, send=lambda payload: len(payload))
+        def send(payload):
+            self.sent_payloads.append(payload)
+            return len(payload)
+
+        return SimpleNamespace(is_open=device_id in self.connected, send=send)
 
     def connected_ports(self) -> list[str]:
         return sorted(self.connected)
@@ -168,6 +175,40 @@ def test_config_editor_button_opens_and_closes_screen(monkeypatch, tmp_path) -> 
             app.screen.action_close_config_editor()
             await pilot.pause()
             assert not isinstance(app.screen, ConfigEditorScreen)
+
+    asyncio.run(scenario())
+
+
+def test_config_editor_browser_only_shows_configs_and_macros(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
+    profile = create_user_profile("alice")
+    user_dir = get_user_dir("alice")
+    (user_dir / "logs").mkdir()
+    (user_dir / "notes").mkdir()
+    (user_dir / "scratch.json").write_text("{}", encoding="utf-8")
+
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False, startup_user=profile)
+        app.device_manager = FakeDeviceManager()
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.click("#config-editor-btn")
+            screen = await wait_for_screen(app, ConfigEditorScreen, pilot)
+            await pilot.pause()
+            await pilot.pause()
+
+            tree = screen.query_one("#config-file-tree")
+            child_paths = [getattr(node.data, "path", None) for node in tree.root.children]
+            child_names = sorted(path.name for path in child_paths if path is not None)
+            assert child_names == ["configs", "macros"]
+            assert tree.root.is_expanded is True
+            expanded_names = {
+                path.name
+                for node in tree.root.children
+                if node.is_expanded and (path := getattr(node.data, "path", None)) is not None
+            }
+            assert expanded_names == {"configs", "macros"}
 
     asyncio.run(scenario())
 
@@ -333,10 +374,10 @@ def test_config_editor_new_flow_adds_command_rows_and_saves_form_data(monkeypatc
             await wait_for_screen(app, ConfigEditorScreen, pilot)
 
             app.screen.query_one("#config-add-command", Button).press()
-            await pilot.pause()
-            await pilot.pause()
-            label_2 = app.screen.query_one("#config-command-label-2", Input)
-            value_2 = app.screen.query_one("#config-command-value-2", Input)
+            label_2 = await wait_for_query(app.screen, "#config-command-label-2", Input, pilot)
+            value_2 = await wait_for_query(app.screen, "#config-command-value-2", Input, pilot)
+            await wait_for_condition(lambda: app.screen.focused is value_2, pilot, attempts=24)
+            assert app.screen.focused is value_2
             label_2.value = "STATUS"
             value_2.value = "get status + 100% & ok\\r\\n"
             app.screen.query_one("#config-command-group-2", Select).value = "__new__"
@@ -423,6 +464,123 @@ def test_primary_command_color_normalizes_to_explicit_blue() -> None:
     assert app._command_buttons[str(button.id)].color == "blue"
     assert "command-color-blue" in button.classes
     assert button.variant == "default"
+
+
+def test_off_white_command_color_uses_custom_button_class() -> None:
+    app = SerialHubApp(require_login=False)
+    button = app._make_command_button("PING", (), "ping", "off-white", 0)
+
+    assert app._command_buttons[str(button.id)].color == "off-white"
+    assert "command-color-off-white" in button.classes
+    assert button.variant == "default"
+
+
+def test_macro_tab_runs_and_edits_macro_files(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
+    profile = create_user_profile("alice")
+    macro_path = get_user_macro_path("alice", "startup")
+    macro_path.write_text(
+        json.dumps(
+            {
+                "name": "startup",
+                "label": "Startup",
+                "commands": [
+                    {"label": "Handshake", "command": "AT\r\n", "delay_ms": 0},
+                    {"label": "Ping", "command": "PING\r\n", "delay_ms": 0},
+                ],
+            },
+            indent=4,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False, startup_user=profile)
+        manager = FakeDeviceManager()
+        app.device_manager = manager
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            app.query_one("#connect-btn", Button).press()
+            await pilot.pause()
+            await wait_for_condition(lambda: app.active_device_id == "COM1", pilot)
+
+            tabs = app.query_one("#command-panel-tabs", TabbedContent)
+            tabs.active = "command-macros-tab"
+            await pilot.pause()
+
+            assert app.query_one(".macro-label", Static)
+            assert static_text(app.query_one(".macro-command-summary", Static)) == "AT\\r\\n\nPING\\r\\n"
+            edit_id = next(iter(app._macro_edit_buttons))
+            assert app.query_one(f"#{edit_id}", Button).variant == "warning"
+            run_id = next(iter(app._macro_run_buttons))
+            app.query_one(f"#{run_id}", Button).press()
+            await pilot.pause()
+            await wait_for_condition(lambda: manager.sent_payloads == [b"AT\r\n", b"PING\r\n"], pilot)
+
+            app.query_one(f"#{edit_id}", Button).press()
+            screen = await wait_for_screen(app, ConfigEditorScreen, pilot)
+            await wait_for_condition(lambda: screen.selected_path == macro_path, pilot, attempts=24)
+            assert screen.selected_path == macro_path
+            assert screen.query_one("#config-editor-form").display is False
+            assert screen.query_one("#macro-editor-form").display is True
+            assert screen.query_one("#macro-label-input", Input).value == "Startup"
+            assert static_text(screen.query_one("#macro-command-label-1", Static)) == "Command 1"
+            assert screen.query_one("#macro-command-value-1", Input).value == "AT\\r\\n"
+            assert screen.query_one("#macro-command-delay-1", Input).value == "0"
+
+    asyncio.run(scenario())
+
+
+def test_config_editor_new_macro_flow_shows_macro_builder_and_saves(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path))
+    profile = create_user_profile("alice")
+
+    async def scenario() -> None:
+        app = SerialHubApp(require_login=False, startup_user=profile)
+        app.device_manager = FakeDeviceManager()
+
+        async with app.run_test() as pilot:
+            await pilot.click("#config-editor-btn")
+            screen = await wait_for_screen(app, ConfigEditorScreen, pilot)
+            await pilot.pause()
+
+            screen.query_one("#macro-new", Button).press()
+            await pilot.pause()
+
+            assert screen.query_one("#config-editor-form").display is False
+            assert screen.query_one("#macro-editor-form").display is True
+            assert screen.selected_path is None
+            assert screen.query_one("#config-save", Button).disabled is False
+
+            screen.query_one("#macro-label-input", Input).value = "Startup Macro"
+            screen.query_one("#macro-command-value-1", Input).value = "AT\\r\\n"
+            screen.query_one("#macro-command-delay-1", Input).value = "250"
+            screen.query_one("#macro-add-command", Button).press()
+            await pilot.pause()
+            assert static_text(screen.query_one("#macro-command-label-2", Static)) == "Command 2"
+            screen.query_one("#macro-command-value-2", Input).value = "PING\\r\\n"
+            screen.query_one("#macro-command-delay-2", Input).value = "0"
+            await pilot.pause()
+
+            screen.query_one("#config-save", Button).press()
+            await pilot.pause()
+
+            saved_path = get_user_macro_path("alice", "Startup Macro")
+            saved_payload = json.loads(saved_path.read_text(encoding="utf-8"))
+            assert saved_payload == {
+                "name": "Startup Macro",
+                "label": "Startup Macro",
+                "commands": [
+                    {"label": "Command 1", "command": "AT\r\n", "delay_ms": 250},
+                    {"label": "Command 2", "command": "PING\r\n", "delay_ms": 0},
+                ],
+            }
+            assert str(saved_path.resolve()) in app._macros
+
+    asyncio.run(scenario())
 
 
 def test_config_editor_delete_button_removes_command_row(monkeypatch, tmp_path) -> None:
@@ -1334,13 +1492,7 @@ def test_tcp_favorites_button_persists_current_ip_and_port_to_user_profile(monke
             await pilot.pause()
 
             app.query_one("#tcp-favorites-btn", Button).press()
-            await wait_for_condition(
-                lambda: bool(
-                    (profile := load_user_profile("alice"))
-                    and len(profile.tcp_favorites) == 1
-                ),
-                pilot,
-            )
+            await pilot.pause()
 
             reloaded_profile = load_user_profile("alice")
             assert reloaded_profile is not None

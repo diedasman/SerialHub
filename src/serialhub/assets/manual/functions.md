@@ -6,6 +6,7 @@
 - [Config Editor Workflow](#config-editor-workflow)
 - [Function Button Layout](#function-button-layout)
 - [Command History](#command-history)
+- [Macros](#macros)
 - [Quick Reference](#quick-reference)
 
 ---
@@ -20,10 +21,11 @@ Use the launcher buttons at the top of the panel:
 - **Manual** opens this manual screen.
 - **Settings** opens user preferences, including the startup command file setting.
 
-Below the launcher, the panel has two command tabs:
+Below the launcher, the panel has three command tabs:
 
 - **Functions** shows command buttons from the selected command config file.
 - **History** shows recently sent messages and user function commands.
+- **Macros** shows saved multi-command macros with command-string previews plus **Run** and **Edit** actions.
 
 ---
 
@@ -45,8 +47,8 @@ SerialHub sends the command text exactly as it is stored in the config file. If 
 │ ╭──────────╮╭──────────╮╭──────────╮ │
 │ │  Editor  ││  Manual  ││ Settings │ │ ← User Screens Launcher
 │ ╰──────────╯╰──────────╯╰──────────╯ │
-│ Functions   History                  │ ← Command Tabs (Functions)
-│ ═════════   ───────                  │
+│ Functions   History   Macros         │ ← Command Tabs (Functions)
+│ ═════════   ───────   ──────         │
 │ ╭──────────────────────────────────╮ │
 │ │  User Functions Selector    ▼    │ │ ← command file selector
 │ ╰──────────────────────────────────╯ │
@@ -128,7 +130,7 @@ For button colors, a command can use a detailed object with `VALUE` and `COLOR`:
 }
 ```
 
-Available colors in the Config Editor are **Blue**, **Yellow**, **Red**, **Neutral**, and **Success**. Blue is the default.
+Available colors in the Config Editor are **Blue**, **Off White**, **Yellow**, **Red**, **Neutral**, and **Success**. Blue is the default.
 
 ## Config Editor Workflow
 
@@ -190,8 +192,8 @@ History is stored per user, so each local profile keeps its own recent commands.
 │ ╭──────────╮╭──────────╮╭──────────╮ │
 │ │  Editor  ││  Manual  ││ Settings │ │ ← User Screens Launcher
 │ ╰──────────╯╰──────────╯╰──────────╯ │
-│ Functions   History                  │ ← Command Tabs (History)
-│ ─────────   ═══════                  │
+│ Functions   History   Macros         │ ← Command Tabs (History)
+│ ─────────   ═══════   ──────         │
 │ ╭──────────────────────────────────╮ │
 │ │last_command                      │ │   list of previous commands,
 │ │──────────────────────────────────│ │ ← most recent at the top
@@ -211,6 +213,40 @@ History is stored per user, so each local profile keeps its own recent commands.
 ```
 ---
 
+## Macros
+
+The **Macros** tab lists JSON macro files from the signed-in user's `macros` folder. Each row shows the macro label, the macro command strings, plus **Run** and **Edit** buttons.
+
+A macro file contains:
+
+- **name**: the file-safe macro key.
+- **label**: the display label shown in the Macros tab.
+- **commands**: ordered macro command objects, each with an indexed label, serial command string, and delay.
+- **delay_ms**: milliseconds to wait after that command before sending the next command.
+
+```json
+{
+    "name": "startup",
+    "label": "Startup",
+    "commands": [
+        {
+            "label": "Handshake",
+            "command": "AT\r\n",
+            "delay_ms": 250
+        },
+        {
+            "label": "Ping",
+            "command": "PING\r\n",
+            "delay_ms": 0
+        }
+    ]
+}
+```
+
+Press **Run** to send the macro commands to the active workspace. Press **Edit** to open that macro file in the Config Editor; macro command rows include a generated command label, command string, per-command delay in milliseconds, and remove button.
+
+---
+
 ## Quick Reference
 
 ```text
@@ -228,6 +264,12 @@ Add line endings
 
 Repeat commands
   History tab -> select previous command -> Send
+
+Run macros
+  Connect a device -> Macros tab -> Run
+
+Edit macros
+  Macros tab -> Edit -> update command rows or delay -> Save
 
 Startup command file
   Settings -> choose startup command file -> Save

@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - sg
     tags:
       - "v*"
   pull_request:
@@ -15,7 +14,6 @@ permissions:
 
 env:
   PYTHON_VERSION: "3.12"
-  APP_NAME: ${{ github.ref_name == 'sg' && 'SerialHub-SG' || github.ref_name == 'main' && 'SerialHub-MAIN' || 'SerialHub' }}
 
 jobs:
   test:
@@ -49,74 +47,27 @@ jobs:
       - name: Run pytest
         run: python -m pytest
 
-  build-windows-exe:
-    name: Build Windows executable
-    runs-on: windows-latest
+  publish-local-release:
+    name: Publish local release executable
+    runs-on: ubuntu-latest
     needs: test
-    if: github.event_name != 'pull_request'
+    if: startsWith(github.ref, 'refs/tags/v')
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: pip
-
-      - name: Install application and packaging dependencies
+      - name: Verify locally built executable is present
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e . pyinstaller
-
-      - name: Build executable
-        shell: pwsh
-        run: |
-          $projectRoot = (Get-Location).Path
-          $cssPath = Join-Path $projectRoot "src/serialhub/serialhub.tcss"
-          $assetsPath = Join-Path $projectRoot "src/serialhub/assets"
-          $iconPath = Join-Path $assetsPath "app.ico"
-          $pyInstallerArgs = @(
-            "--noconfirm",
-            "--clean",
-            "--onefile",
-            "--console",
-            "--name", $env:APP_NAME,
-            "--specpath", "build/pyinstaller",
-            "--workpath", "build/pyinstaller",
-            "--distpath", "dist",
-            "--add-data", "${cssPath};serialhub",
-            "--add-data", "${assetsPath};serialhub/assets",
-            "--collect-submodules", "textual.widgets",
-            "--hidden-import", "textual_serve.server",
-            "--collect-submodules", "serial"
-          )
-          if (Test-Path $iconPath) {
-            $pyInstallerArgs += @("--icon", $iconPath)
-          }
-          $pyInstallerArgs += "src/serialhub/__main__.py"
-          python -m PyInstaller @pyInstallerArgs
-
-      - name: Package release bundle
-        shell: pwsh
-        run: |
-          $bundleDir = "dist\$env:APP_NAME-windows-amd64"
-          New-Item -ItemType Directory -Force -Path $bundleDir | Out-Null
-          Copy-Item "dist\$env:APP_NAME.exe" $bundleDir
-          Copy-Item README.md, LICENSE $bundleDir
-          Compress-Archive -Path "$bundleDir\*" -DestinationPath "dist\$env:APP_NAME-windows-amd64.zip" -Force
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.APP_NAME }}-windows-amd64
-          if-no-files-found: error
-          path: dist/${{ env.APP_NAME }}-windows-amd64
+          exe="dist/SerialHub-${GITHUB_REF_NAME}.exe"
+          if [ ! -f "$exe" ]; then
+            echo "No local release executable found at $exe. Build locally with scripts/build_release.ps1 and commit it before tagging."
+            exit 1
+          fi
+          printf '%s\n' "$exe"
 
       - name: Publish GitHub release assets
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/${{ env.APP_NAME }}-windows-amd64.zip
+          files: dist/SerialHub-${{ github.ref_name }}.exe
           generate_release_notes: true

@@ -96,12 +96,22 @@ def get_user_command_configs_dir(username: str) -> Path:
     return path
 
 
+def get_user_macros_dir(username: str) -> Path:
+    path = get_user_dir(username) / "macros"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def _get_legacy_user_command_config_path(username: str, config_name: str) -> Path:
     return get_user_dir(username) / f"{normalize_command_config_name(config_name)}.json"
 
 
 def get_user_command_config_path(username: str, config_name: str) -> Path:
     return get_user_command_configs_dir(username) / f"{normalize_command_config_name(config_name)}.json"
+
+
+def get_user_macro_path(username: str, macro_name: str) -> Path:
+    return get_user_macros_dir(username) / f"{normalize_command_config_name(macro_name)}.json"
 
 
 def get_user_message_history_path(username: str) -> Path:
@@ -335,6 +345,11 @@ def list_user_command_config_files(username: str) -> list[Path]:
     normalized = normalize_username(username)
     migrate_legacy_command_configs(normalized)
     return sorted(get_user_command_configs_dir(normalized).glob("*.json"))
+
+
+def list_user_macro_files(username: str) -> list[Path]:
+    normalized = normalize_username(username)
+    return sorted(get_user_macros_dir(normalized).glob("*.json"))
 
 
 def save_user_profile(profile: UserProfile) -> None:

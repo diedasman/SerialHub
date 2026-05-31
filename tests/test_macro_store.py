@@ -17,5 +17,7 @@ def test_macro_store_roundtrip(tmp_path: Path) -> None:
     loaded = store.load()
 
     assert [m.name for m in loaded] == ["Ping", "HexCmd"]
+    assert loaded[0].commands[0].command == "PING"
     assert loaded[1].hex_mode is True
     assert loaded[1].delay_ms == 25
+    assert loaded[1].commands[0].delay_ms == 25

@@ -4,21 +4,60 @@ Thanks for contributing.
 
 ## Development Setup
 
-1. Create and activate a virtual environment.
-2. Install in editable mode with dev dependencies:
+Use a local virtual environment for development and testing.
 
-```bash
+Windows PowerShell shortcut from the project root:
+
+```powershell
+. .\scripts\dev_setup.ps1
+```
+
+Manual setup:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
 python -m pip install -e .[dev]
 ```
 
-3. Run checks before opening a PR:
+Linux manual setup:
 
 ```bash
-ruff check src tests
-python -m compileall src tests
-python -m pytest
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e .[dev]
 ```
 
+If you use VS Code, point it at the virtual-environment interpreter so imports resolve correctly.
+
+## Running From Source
+
+Terminal mode:
+
+```powershell
+python -m serialhub
+```
+
+Browser mode:
+
+```powershell
+python -m serialhub --web
+```
+
+To bind a different browser host or port:
+
+```powershell
+python -m serialhub --web --host 0.0.0.0 --port 8000
+```
+
+By default SerialHub stores local app data in a per-user application-data folder:
+
+- Windows: `%LOCALAPPDATA%\SerialHub`
+- Linux: `$XDG_DATA_HOME/SerialHub` or `~/.local/share/SerialHub`
+
+Override the storage location with `SERIALHUB_DATA_DIR` if needed.
 ## Pull Request Guidelines
 
 - Keep changes focused and small when possible.

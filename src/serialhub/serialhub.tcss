@@ -285,7 +285,7 @@ TabPane {
 #timestamp-checkbox,
 #chevron-checkbox {
     width: auto;
-    margin-right: 1;
+    # margin-right: 1;
     margin-top: 0;
 }
 
@@ -314,6 +314,47 @@ TabPane {
     height: 1fr;
     border: solid $secondary;
     background: $background;
+}
+
+#macro-list-scroll {
+    height: 1fr;
+    # border: solid $secondary;
+    background: $background;
+    # padding: 0 1;
+}
+
+.macro-row {
+    layout: horizontal;
+    height: auto;
+    # margin-bottom: 1;
+    border: round $secondary;
+}
+
+.macro-summary {
+    width: 1fr;
+    height: auto;
+}
+
+.macro-label {
+    width: 1fr;
+    height: 3;
+    border: round $accent;
+    padding: 0 1;
+    content-align: left middle;
+    color: $foreground;
+}
+
+.macro-command-summary {
+    width: 1fr;
+    height: auto;
+    color: $secondary;
+    padding: 0 1;
+}
+
+.macro-action {
+    width: auto;
+    min-width: 8;
+    margin-left: 1;
 }
 
 .command-history-item {
@@ -347,7 +388,7 @@ TabPane {
 
 #tx-input {
     width: 1fr;
-    margin-right: 1;
+    # margin-right: 1;
     margin-top: 0;
 }
 
@@ -384,7 +425,7 @@ TabPane {
 #log-filepath {
     margin-top: 0;
     margin-bottom: 0;
-    margin-right: 1;
+    # margin-right: 1;
     width: 1fr;
 }
 
@@ -392,7 +433,6 @@ TabPane {
     margin-top: 0;
     margin-bottom: 0;
     margin-right: 1;
-    margin-left: 2;
 }
 
 #copy-workspace-btn {
@@ -422,6 +462,17 @@ Button.command-color-blue:hover,
 Button.command-color-blue:focus {
     background: #388bfd;
     color: #ffffff;
+}
+
+Button.command-color-off-white {
+    background: #f8f4e8;
+    color: #1f2328;
+}
+
+Button.command-color-off-white:hover,
+Button.command-color-off-white:focus {
+    background: #fffaf0;
+    color: #000000;
 }
 
 .command-row {
@@ -496,13 +547,17 @@ Button.command-color-blue:focus {
     margin-top: 1;
 }
 
-#config-new {
+#config-new,
+#macro-new {
     width: 1fr;
-    # margin-top: 1;
+}
+
+#config-new {
+    margin-right: 1;
 }
 
 #config-delete {
-    width: 1fr;
+    width: auto;
 }
 
 #config-file-tree {
@@ -522,15 +577,38 @@ Button.command-color-blue:focus {
 
 #config-editor-scroll {
     height: 1fr;
-    border: round $secondary;
+    # border: round $secondary;
 }
 
 #config-name-row {
     height: auto;
     margin-bottom: 1;
+    # padding-bottom: 1;
+    border-bottom: solid $secondary;
 }
 
 #config-name-input {
+    width: 1fr;
+}
+
+#macro-editor-form {
+    height: 1fr;
+    min-height: 1;
+}
+
+#macro-editor-scroll {
+    height: 1fr;
+    min-height: 1;
+}
+
+#macro-label-row {
+    height: auto;
+    margin-bottom: 1;
+    # padding-bottom: 1;
+    border-bottom: solid $secondary;
+}
+
+#macro-label-input {
     width: 1fr;
 }
 
@@ -550,6 +628,12 @@ Button.command-color-blue:focus {
     margin-bottom: 1;
 }
 
+.macro-command-row {
+    layout: horizontal;
+    height: auto;
+    margin-bottom: 1;
+}
+
 .config-input-label {
     width: 10;
     height: 3;
@@ -560,6 +644,21 @@ Button.command-color-blue:focus {
 
 .config-command-input {
     width: 1fr;
+}
+
+.macro-command-input {
+    width: 1fr;
+    margin-right: 1;
+}
+
+.macro-command-label {
+    width: 20;
+    margin-right: 1;
+}
+
+.macro-command-delay-input {
+    width: 14;
+    margin-right: 1;
 }
 
 .config-command-label-input {
@@ -583,6 +682,8 @@ Button.command-color-blue:focus {
 #config-editor-actions {
     height: auto;
     margin-top: 1;
+    padding-top: 1;
+    border-top: solid $secondary;
 }
 
 #config-save,
