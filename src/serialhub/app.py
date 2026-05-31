@@ -848,11 +848,12 @@ class ConfigEditorScreen(Screen[None]):
     def on_mount(self) -> None:
         self._set_panel_border_titles()
         tree = self.query_one("#config-file-tree", CommandConfigDirectoryTree)
-        tree.focus()
+        if self.initial_path is None:
+            tree.focus()
         self._render_empty_editor()
         self.call_after_refresh(self._expand_file_tree_roots)
         if self.initial_path is not None:
-            self.call_after_refresh(self._display_document_for_path, self.initial_path)
+            self._display_document_for_path(self.initial_path)
 
     def _expand_file_tree_roots(self) -> None:
         tree = self.query_one("#config-file-tree", CommandConfigDirectoryTree)
@@ -916,8 +917,8 @@ class ConfigEditorScreen(Screen[None]):
             return
         path = getattr(event.node.data, "path", None)
         if not isinstance(path, Path) or path.suffix.lower() != ".json":
-            self._store_active_document_draft()
-            self._render_empty_editor()
+            if self._active_document_key is None:
+                self._render_empty_editor()
             return
         self._display_document_for_path(path)
 
