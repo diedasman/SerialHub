@@ -37,7 +37,35 @@ Windows executable builds are produced locally. Cloud CI does not build release 
 
 End users on Windows can download `SerialHub-v*.exe` from the GitHub release assets or from the repository `dist/` folder, then run the executable directly. No Python installation or source checkout is required for normal end-user use.
 
-For now, Linux usage is source-based rather than distributed as a packaged executable.
+Linux end users can install SerialHub with one command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/diedasman/SerialHub/main/scripts/install_linux.sh | bash
+```
+
+The installer creates an isolated virtual environment under `~/.local/share/serialhub`, installs SerialHub into it, and adds a `serialhub` launcher at `~/.local/bin/serialhub`. After installation, run the app from any terminal:
+
+```bash
+serialhub
+```
+
+If your shell cannot find `serialhub`, add `~/.local/bin` to your `PATH` and open a new terminal:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Linux install requirements:
+
+- Python `3.12` or newer
+- The Python `venv` module, such as `python3.12-venv` on Debian or Ubuntu
+- Serial device permissions for your user, often through the `dialout` or `uucp` group depending on your distribution
+
+To install a tagged version instead of `main`, set `SERIALHUB_REF`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/diedasman/SerialHub/main/scripts/install_linux.sh | env SERIALHUB_REF=v2.0 bash
+```
 
 ## Development Setup
 
