@@ -559,10 +559,12 @@ def test_config_editor_new_macro_flow_shows_macro_builder_and_saves(monkeypatch,
             screen.query_one("#macro-command-value-1", Input).value = "AT\\r\\n"
             screen.query_one("#macro-command-delay-1", Input).value = "250"
             screen.query_one("#macro-add-command", Button).press()
-            await pilot.pause()
-            assert static_text(screen.query_one("#macro-command-label-2", Static)) == "Command 2"
-            screen.query_one("#macro-command-value-2", Input).value = "PING\\r\\n"
-            screen.query_one("#macro-command-delay-2", Input).value = "0"
+            label_2 = await wait_for_query(screen, "#macro-command-label-2", Static, pilot)
+            value_2 = await wait_for_query(screen, "#macro-command-value-2", Input, pilot)
+            delay_2 = await wait_for_query(screen, "#macro-command-delay-2", Input, pilot)
+            assert static_text(label_2) == "Command 2"
+            value_2.value = "PING\\r\\n"
+            delay_2.value = "0"
             await pilot.pause()
 
             screen.query_one("#config-save", Button).press()
